@@ -1,0 +1,5 @@
+import pyaudio
+import wave
+import numpy as np
+
+pass

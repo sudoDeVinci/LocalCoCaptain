@@ -1,5 +1,6 @@
 lcc
 venv
+ollama
 logs
 *.log
 *.pyc
@@ -7,3 +8,4 @@ logs
 .mypy_cache
 .ruff_cache
 __pycache__
+cocaptain
