@@ -1,0 +1,5 @@
+numpy==2.2.5
+PyAudio==0.2.14
+python_speech_features==0.6
+six==1.17.0
+whisper==1.1.10
