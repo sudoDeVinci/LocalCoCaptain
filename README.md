@@ -32,7 +32,7 @@ Install the voice-to-text transcriber model.
 
 ### PyAudio Install
 
-First we need to grab our global pre-reqs.
+For our audio transcription, we need to grab some global pre-reqs before creating our virtualenv.
 
 ```bash
     sudo apt install portaudio19-dev python-pyaudio
