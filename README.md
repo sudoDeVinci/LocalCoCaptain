@@ -30,7 +30,12 @@ Install the voice-to-text transcriber model.
     ollama pull dimavz/whisper-tiny
 ```
 
-### PyAudio Install
+### Audio-Related Installs
+
+For some basic audio processing tools, we require ffmpeg under the hood.
+```bash
+    sudo apt update && sudo apt install ffmpeg
+```
 
 For our audio transcription, we need to grab some global pre-reqs before creating our virtualenv.
 
