@@ -148,9 +148,11 @@ if __name__ == "__main__":
     # Record from default microphone for 5 seconds
     print("\n" + "="*50)
     record_audio(
-        device_index=2,
+        device_index=1,
         duration=5,
         output_file="test_recording.wav")
+
+    play_audio("test_recording.wav")
     
     from audio_to_text import load_audio, transcribe_audio, chunk_audio
     
