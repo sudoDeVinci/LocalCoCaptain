@@ -40,5 +40,5 @@ For some basic audio processing tools, we require ffmpeg under the hood.
 For our audio transcription, we need to grab some global pre-reqs before creating our virtualenv.
 
 ```bash
-    sudo apt install portaudio19-dev python-pyaudio
+    sudo apt install portaudio19-dev python3-pyaudio
 ```
