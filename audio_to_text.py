@@ -123,15 +123,3 @@ def transcribe_audio(audio: list[ndarray[float32, 1]]) -> str:
             results[i]+=result.text
 
     return " ".join(results)
-
-
-if __name__ == "__main__":
-    audio = load_audio("example.mp3")
-
-    start = datetime.now()
-    chunks = chunk_audio(audio, 480000)
-    results = transcribe_audio(chunks)
-    end = datetime.now()
-
-    print(f">> Result: {results}")
-    print(f">> Time taken: {end - start}")

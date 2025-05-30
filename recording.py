@@ -1,6 +1,13 @@
 import pyaudio
 import wave
-import time
+from os import environ
+from numpy import frombuffer, float32, int16, ndarray, concatenate
+from io import BytesIO
+from subprocess import CalledProcessError, run
+
+# Suppress ALSA error messages
+environ['ALSA_PCM_CARD'] = 'default'
+environ['ALSA_PCM_DEVICE'] = '0'
 
 def list_microphones():
     """List all available audio input devices (microphones)"""
@@ -34,26 +41,24 @@ def list_microphones():
     # Clean up
     p.terminate()
 
-def record_audio(device_index=None, duration=5, sample_rate=44100, chunk_size=1024, output_file="recording.wav"):
+def record_audio(device_index: int = 1,
+                          duration: int = 5,
+                          sample_rate: int = 16000,
+                          chunk_size: int = 1024
+) -> ndarray[float32]:
     """
-    Record audio from a microphone
-    
-    Args:
-        device_index: Index of the microphone device (None for default)
-        duration: Recording duration in seconds
-        sample_rate: Sample rate for recording
-        chunk_size: Buffer size
-        output_file: Output WAV file path
+    Record audio directly as NumPy array, avoiding unnecessary conversions
     """
-    # Initialize PyAudio
     p = pyaudio.PyAudio()
     
-    # Audio format settings
-    format = pyaudio.paInt16  # 16-bit resolution
-    channels = 1  # Mono recording
+    format = pyaudio.paInt16
+    channels = 1
+    chunk_count = int(sample_rate / chunk_size * duration)
+    
+    # Pre-allocate NumPy array for efficiency
+    audio_data = []
     
     try:
-        # Open audio stream
         stream = p.open(
             format=format,
             channels=channels,
@@ -64,99 +69,41 @@ def record_audio(device_index=None, duration=5, sample_rate=44100, chunk_size=10
         )
         
         print(f"Recording for {duration} seconds...")
-        print("Speak now!")
         
-        frames = []
-        
-        # Record audio in chunks
-        for i in range(0, int(sample_rate / chunk_size * duration)):
+        for i in range(chunk_count):
             data = stream.read(chunk_size)
-            frames.append(data)
-            
-            # Optional: show progress
-            if i % (sample_rate // chunk_size) == 0:
-                remaining = duration - (i * chunk_size / sample_rate)
-                print(f"Time remaining: {remaining:.1f}s", end="\r")
+            # Convert directly to float32 without intermediate storage
+            chunk_array = frombuffer(data, int16).astype(float32) / 32768.0
+            audio_data.append(chunk_array)
         
-        print("\nRecording finished!")
-        
-        # Stop and close stream
         stream.stop_stream()
         stream.close()
+
+    except ValueError as err:
+        print(f"Error: {err}")
+        print("Please check if the device index is correct and the microphone is connected.")
         
-        # Save to WAV file
-        with wave.open(output_file, 'wb') as wf:
-            wf.setnchannels(channels)
-            wf.setsampwidth(p.get_sample_size(format))
-            wf.setframerate(sample_rate)
-            wf.writeframes(b''.join(frames))
-        
-        print(f"Audio saved to: {output_file}")
-        
-    except Exception as e:
-        print(f"Error during recording: {e}")
     finally:
-        p.terminate()
+        p.terminate()    
+        # Concatenate all chunks efficiently
+        return concatenate(audio_data)
 
-def play_audio(file_path):
-    """
-    Play back a WAV audio file
-    
-    Args:
-        file_path: Path to the WAV file to play
-    """
-    try:
-        # Open the WAV file
-        with wave.open(file_path, 'rb') as wf:
-            # Initialize PyAudio
-            p = pyaudio.PyAudio()
-            
-            # Open audio stream for playback
-            stream = p.open(
-                format=p.get_format_from_width(wf.getsampwidth()),
-                channels=wf.getnchannels(),
-                rate=wf.getframerate(),
-                output=True
-            )
-            
-            print(f"Playing: {file_path}")
-            
-            # Read and play audio in chunks
-            chunk_size = 1024
-            data = wf.readframes(chunk_size)
-            
-            while data:
-                stream.write(data)
-                data = wf.readframes(chunk_size)
-            
-            print("Playback finished!")
-            
-            # Clean up
-            stream.stop_stream()
-            stream.close()
-            p.terminate()
-            
-    except FileNotFoundError:
-        print(f"Error: File '{file_path}' not found")
-    except Exception as e:
-        print(f"Error during playback: {e}")
-
+# Update your main section:
 if __name__ == "__main__":
-    # List available microphones first
-    list_microphones()
+    from audio_to_text import transcribe_audio, chunk_audio
+    DURATION = 10
+    SAMPLE_RATE = 16000  # Match your target sample rate
+    CHUNK_SIZE = 1024
     
-    # Record from default microphone for 5 seconds
     print("\n" + "="*50)
-    record_audio(
+    # Get audio directly as NumPy array
+    audio = record_audio(
         device_index=1,
-        duration=5,
-        output_file="test_recording.wav")
-
-    play_audio("test_recording.wav")
+        duration=DURATION,
+        sample_rate=SAMPLE_RATE,
+        chunk_size=CHUNK_SIZE
+    )
     
-    from audio_to_text import load_audio, transcribe_audio, chunk_audio
-    
-    audio = load_audio("test_recording.wav")
-    chunks = chunk_audio(audio, 44100)
+    chunks = chunk_audio(audio=audio, CHUNK_LIM=480000)
     results = transcribe_audio(chunks)
-    print(f">> Transcription Result: {results}")
+    print(f"\n\n\n>> Transcription ::: {results}\n\n")
