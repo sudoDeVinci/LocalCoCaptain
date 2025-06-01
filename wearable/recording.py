@@ -51,7 +51,9 @@ class AudioWatchDog:
         'audioLock',
         'isRecording',
         'recordingProcess',
-        'transcriptionProcess'
+        'transcriptionProcess',
+        'transcription',
+        'EOF'
     )
     
     audioInterface: pyaudio.PyAudio
@@ -69,25 +71,24 @@ class AudioWatchDog:
         audioConfig: AudioConfig,
         queue: Queue | None = None,
         audioInterface: pyaudio.PyAudio | None = None,
+        eof: str | None = None
     ) -> None:
         self.audioConfig = audioConfig
         self.audioInterface = audioInterface if audioInterface else pyaudio.PyAudio()
         self.audioQueue = queue if queue else Queue()
         self.audioLock = Lock()
+        self.EOF = eof
 
 
     def __del__(self):
         self.audioLock.acquire()
         self.audioInterface.terminate()
         self.audioLock.release()
-    
 
-    def get_interface(self, timeout=1.0) -> pyaudio.PyAudio:
-        aquired = self.audioLock.acquire(timeout=timeout)
-        out = self.audioInterface if aquired else None
-        if aquired:
-            self.audioLock.release()
-        return out
+
+    def _detect_voice_activity(self, audiochunk: AudioChunk) -> bool:
+        # TODO: Implement voice activity detection logic
+        return True
 
 
     def _audio_producer_callback(self) -> None:
@@ -108,18 +109,15 @@ class AudioWatchDog:
             isTalking: bool = False
 
             while self.isRecording:
-                # Check if voice activity is detected - set isTalking to True.
+                #TODO: Check if voice activity is detected - set isTalking to True.
                 data = stream.read(self.audioConfig.chunk_size,
                                    exception_on_overflow=False)
+                chunk_array: AudioChunk = frombuffer(data, int16).astype(float32) / 32768.0
 
-                if isTalking:
-                    # TODO: Maybe this should be a separate process, to preprocess the audio data
-                    chunk_array: AudioChunk = frombuffer(data, int16).astype(float32) / 32768.0
+
+                if self._detect_voice_activity(chunk_array):
                     self.audioQueue.put(chunk_array)
 
-                else:
-                    # If no voice activity, skip processing
-                    continue
 
         except ValueError as err:
             print(f"Error: {err}")
@@ -135,13 +133,14 @@ class AudioWatchDog:
 
     def _audio_transcriber_callback(self) -> None:
         while self.isRecording and not self.audioQueue.empty():
-            # Move audio chunk into temporary queue to build up snippet
-            audio_chunk = self.audioQueue.get(timeout=1.0)
-
             # When there's enough chunks, send for transcription
             if len(self.audioQueue) >= self.audioConfig.chunks_per_buffer:
                 # TODO: send for transcription
-                self._transcribe_audio()
+                try:
+                    self._transcribe_audio()
+                except ValueError as err:
+                    print(f"Transcription error: {err}")
+                    continue
 
 
     def _transcribe_audio(self) -> None:
@@ -150,10 +149,60 @@ class AudioWatchDog:
         text = transcribe_audio(chunks).strip()
         self.transcription.put(text)
 
-if __name__ == "__main__":
-    
-    DURATION = 10
-    SAMPLE_RATE = 16000  # Match your target sample rate
-    CHUNK_SIZE = 1024
-    
-    print("\n" + "="*50)
+
+
+    def start_recording(self) -> None:
+        if self.isRecording:
+            print("Recording is already in progress.")
+            return
+        
+        if not self.audioQueue.empty():
+            print("Clearing existing audio queue.")
+            while not self.audioQueue.empty():
+                self.audioQueue.get()
+
+        
+        self.isRecording = True
+        self.recordingProcess = Process(
+            target=self._audio_producer_callback,
+            name="AudioProducer"
+        )
+
+        self.transcriptionProcess = Process(
+            target=self._audio_transcriber_callback,
+            name="AudioTranscriber"
+        )
+
+        self.recordingProcess.start()
+        self.transcriptionProcess.start()
+
+
+        print("🚀 AudioWatchDog started.")
+
+
+    def stop_recording(self) -> None:
+        if not self.isRecording:
+            print("Recording is not in progress.")
+            return
+        
+        self.isRecording = False
+
+        if self.recordingProcess and self.recordingProcess.is_alive():
+            self.recordingProcess.join(timeout=1.0)
+            if self.recordingProcess.is_alive():
+                print("Recording process did not terminate gracefully - terminating forcefully.")
+                self.recordingProcess.terminate()
+        self.recordingProcess = None
+
+
+        if self.transcriptionProcess and self.transcriptionProcess.is_alive():
+            self.transcriptionProcess.join(timeout=1.0)
+            if self.transcriptionProcess.is_alive():
+                print("Transcription process did not terminate gracefully - terminating forcefully.")
+                self.transcriptionProcess.terminate()
+        self.transcriptionProcess = None
+
+        # Signal end of transcription
+        self.transcription.put(self.EOF)
+
+        print("⏹️ AudioWatchDog stopped.")
