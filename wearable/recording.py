@@ -8,11 +8,14 @@ from numpy import (
     ndarray
 )
 
-from multiprocessing import Queue, Process
+from multiprocessing import Queue, Process, Manager
+from multiprocessing.managers import SyncManager, ValueProxy
 from threading import Lock
 from typing import Literal
-from wearable.audio_to_text import transcribe_audio, chunk_audio
+from wearable.utils import transcribe_audio, chunk_audio
 from wearable._types import AudioConfig
+from time import sleep
+from webrtcvad import Vad
 
 AudioChunk = ndarray[tuple[Literal[1024]], float32]
 
@@ -21,7 +24,6 @@ AudioChunk = ndarray[tuple[Literal[1024]], float32]
 # Suppress ALSA error messages
 environ['ALSA_PCM_CARD'] = 'default'
 environ['ALSA_PCM_DEVICE'] = '0'
-
 
 
 
@@ -45,6 +47,7 @@ class AudioWatchDog:
         transcription (Queue[str]): Queue to store transcribed text.
     """
     __slots__ = (
+        'EOF',
         'audioInterface',
         'audioQueue',
         'audioConfig',
@@ -53,42 +56,56 @@ class AudioWatchDog:
         'recordingProcess',
         'transcriptionProcess',
         'transcription',
-        'EOF'
+        'processManager'
+        'voiceActivityDetector',
     )
-    
+
+    EOF: str | None = None 
     audioInterface: pyaudio.PyAudio
     audioQueue: Queue[AudioChunk]
     audioConfig: AudioConfig
-    audioLock: Lock
-    isRecording: bool = False
+    audioLock: Lock = Lock()
+
+    isRecording: ValueProxy[bool]
     recordingProcess: Process | None = None
     transcriptionProcess: Process | None = None
-    transcription: Queue[str] = Queue()
+    transcription: Queue[str]
+    processManager: SyncManager
 
+    voiceActivityDetector: Vad | None = None
 
     def __init__(
         self,
         audioConfig: AudioConfig,
-        queue: Queue | None = None,
         audioInterface: pyaudio.PyAudio | None = None,
         eof: str | None = None
     ) -> None:
         self.audioConfig = audioConfig
         self.audioInterface = audioInterface if audioInterface else pyaudio.PyAudio()
-        self.audioQueue = queue if queue else Queue()
-        self.audioLock = Lock()
         self.EOF = eof
+        self.voiceActivityDetector = Vad()
+        self.voiceActivityDetector.set_mode(0)
+
+        # Shared values require a manager to keep syncd
+        self.processManager = Manager()
+        self.audioQueue = self.processManager.Queue()
+        self.transcription = self.processManager.Queue()
+        self.isRecording = self.processManager.Value(bool, False)
 
 
     def __del__(self):
+        if hasattr(self, 'isRecording') and self.isRecording.value:
+            self.stop_recording()
         self.audioLock.acquire()
         self.audioInterface.terminate()
         self.audioLock.release()
 
 
     def _detect_voice_activity(self, audiochunk: AudioChunk) -> bool:
-        # TODO: Implement voice activity detection logic
-        return True
+        return self.voiceActivityDetector.is_speech(
+            audiochunk.tobytes(),
+            sample_rate=self.audioConfig.sample_rate
+        )
 
 
     def _audio_producer_callback(self) -> None:
@@ -106,22 +123,21 @@ class AudioWatchDog:
 
             print("🎤 Recording started... ")
 
-            isTalking: bool = False
 
-            while self.isRecording:
-                #TODO: Check if voice activity is detected - set isTalking to True.
+            while self.isRecording.value:
                 data = stream.read(self.audioConfig.chunk_size,
                                    exception_on_overflow=False)
-                chunk_array: AudioChunk = frombuffer(data, int16).astype(float32) / 32768.0
 
 
-                if self._detect_voice_activity(chunk_array):
+                if self._detect_voice_activity(data):
+                    chunk_array: AudioChunk = frombuffer(data, int16).astype(float32) / 32768.0
                     self.audioQueue.put(chunk_array)
 
 
-        except ValueError as err:
-            print(f"Error: {err}")
-            print("Please check if the device index is correct and the microphone is connected.")
+        except Exception as err:
+            print(f"Error recording Audio ::: {err}")
+            # Signal end of processing
+            self.isRecording.value = False
         
         finally:
             if 'stream' in locals():
@@ -132,15 +148,25 @@ class AudioWatchDog:
 
 
     def _audio_transcriber_callback(self) -> None:
-        while self.isRecording and not self.audioQueue.empty():
+        while self.isRecording.value:
             # When there's enough chunks, send for transcription
-            if len(self.audioQueue) >= self.audioConfig.chunks_per_buffer:
-                # TODO: send for transcription
+            if self.audioQueue.qsize() >= self.audioConfig.chunks_per_buffer:
                 try:
                     self._transcribe_audio()
                 except ValueError as err:
                     print(f"Transcription error: {err}")
                     continue
+            else:
+                sleep(0.1)
+
+        # If recording is stopped, process any remaining audio chunks
+        while not self.audioQueue.empty():
+            if self.audioQueue.qsize() >= self.audioConfig.chunks_per_buffer:
+                try:
+                    self._transcribe_audio()
+                except ValueError as err:
+                    print(f"Transcription error: {err}")
+                    break
 
 
     def _transcribe_audio(self) -> None:
@@ -152,17 +178,17 @@ class AudioWatchDog:
 
 
     def start_recording(self) -> None:
-        if self.isRecording:
+        if self.isRecording.value:
             print("Recording is already in progress.")
             return
         
         if not self.audioQueue.empty():
             print("Clearing existing audio queue.")
             while not self.audioQueue.empty():
-                self.audioQueue.get()
+                self.audioQueue.get_nowait()
 
         
-        self.isRecording = True
+        self.isRecording.value = True
         self.recordingProcess = Process(
             target=self._audio_producer_callback,
             name="AudioProducer"
@@ -181,11 +207,11 @@ class AudioWatchDog:
 
 
     def stop_recording(self) -> None:
-        if not self.isRecording:
+        if not self.isRecording.value:
             print("Recording is not in progress.")
             return
         
-        self.isRecording = False
+        self.isRecording.value = False
 
         if self.recordingProcess and self.recordingProcess.is_alive():
             self.recordingProcess.join(timeout=1.0)
@@ -206,3 +232,5 @@ class AudioWatchDog:
         self.transcription.put(self.EOF)
 
         print("⏹️ AudioWatchDog stopped.")
+
+
