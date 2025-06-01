@@ -10,7 +10,11 @@ from numpy import (ndarray,
                    float32,
                    uint32,
                    ceil,
-                   zeros)
+                   zeros,
+                   frombuffer,
+                   int16,
+                   concatenate,
+)
 
 from numba import (njit,
                    jit,
@@ -19,9 +23,15 @@ from numba import (njit,
 )
 from typing import List
 import os
-from torch import cuda
+from torch import (
+    cuda,
+    inference_mode,
+    backends as torch_backends,
+    set_num_threads
+)
 from datetime import datetime
-import torch
+import pyaudio
+
 
 
 TRANSCRIBER: Whisper = load_model("base",
@@ -29,9 +39,9 @@ TRANSCRIBER: Whisper = load_model("base",
                                   in_memory=True)
 print(f">> Using device: {TRANSCRIBER.device}\n")
 os.environ["OMP_NUM_THREADS"] = "4"
-torch.set_num_threads(4)
-if torch.cuda.is_available():
-    torch.backends.cudnn.benchmark = True  # May help with repeated operations
+set_num_threads(4)
+if cuda.is_available():
+    torch_backends.cudnn.benchmark = True  # May help with repeated operations
 
 
 @njit(
@@ -115,7 +125,7 @@ def transcribe_audio(audio: list[ndarray[float32, 1]]) -> str:
     # Pre-allocate the results list with the exact size needed
     results = [""] * len(audio)
     # audio = [snippet.astype(dtype=float16, order='C', copy=False) for snippet in audio]
-    with torch.inference_mode():
+    with inference_mode():
         for i, chunk in enumerate(audio):
             # make log-Mel spectrogram and move to the same device as the model
             mel = log_mel_spectrogram(chunk).to(device)
@@ -123,3 +133,52 @@ def transcribe_audio(audio: list[ndarray[float32, 1]]) -> str:
             results[i]+=result.text
 
     return " ".join(results)
+
+
+def record_audio(
+    device_index: int = 1,
+    duration: int = 5,
+    sample_rate: int = 16000,
+    chunk_size: int = 1024
+) -> ndarray[float32]:
+    """
+    Record audio directly as NumPy array, avoiding unnecessary conversions
+    """
+    p = pyaudio.PyAudio()
+    
+    format = pyaudio.paInt16
+    channels = 1
+    chunk_count = int(sample_rate / chunk_size * duration)
+    
+    # Pre-allocate NumPy array for efficiency
+    audio_data = []
+    
+    try:
+        stream = p.open(
+            format=format,
+            channels=channels,
+            rate=sample_rate,
+            input=True,
+            input_device_index=device_index,
+            frames_per_buffer=chunk_size
+        )
+        
+        print(f"Recording for {duration} seconds...")
+        
+        for i in range(chunk_count):
+            data = stream.read(chunk_size)
+            # Convert directly to float32 without intermediate storage
+            chunk_array = frombuffer(data, int16).astype(float32) / 32768.0
+            audio_data.append(chunk_array)
+        
+        stream.stop_stream()
+        stream.close()
+
+    except ValueError as err:
+        print(f"Error: {err}")
+        print("Please check if the device index is correct and the microphone is connected.")
+        
+    finally:
+        p.terminate()    
+        # Concatenate all chunks efficiently
+        return concatenate(audio_data)

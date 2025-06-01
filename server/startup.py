@@ -7,7 +7,7 @@ from ollama import (
     ListResponse,
     ResponseError
 )
-from _types import (
+from server._types import (
     Modelfile
 )
 
