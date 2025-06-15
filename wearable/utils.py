@@ -26,22 +26,17 @@ import os
 from torch import (
     cuda,
     inference_mode,
-    backends as torch_backends,
-    set_num_threads
 )
 from datetime import datetime
 import pyaudio
 
 
-
 TRANSCRIBER: Whisper = load_model("base",
-                                  device="cuda" if cuda.is_available() else "cpu",
                                   in_memory=True)
-print(f">> Using device: {TRANSCRIBER.device}\n")
-os.environ["OMP_NUM_THREADS"] = "4"
-set_num_threads(4)
-if cuda.is_available():
-    torch_backends.cudnn.benchmark = True  # May help with repeated operations
+"""
+Transcription Whisper model for voice to text conversion.
+This model is loaded once and used for all transcriptions.
+"""
 
 
 @njit(

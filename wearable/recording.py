@@ -21,12 +21,6 @@ AudioChunk = ndarray[tuple[Literal[1024]], float32]
 
 
 
-# Suppress ALSA error messages
-environ['ALSA_PCM_CARD'] = 'default'
-environ['ALSA_PCM_DEVICE'] = '0'
-
-
-
 class AudioWatchDog:
     """
     AudioWatchDog is a class that manages audio recording for transcription.
