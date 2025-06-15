@@ -1,5 +1,21 @@
-from typing import TypedDict, Any, Mapping
-from ollama._types import SubscriptableBaseModel
+from typing import (
+    TypedDict,
+    Any,
+    Mapping,
+    Optional,
+    Sequence,
+    Literal,
+    Union
+)
+
+from pydantic import (
+    ConfigDict,
+    Field
+)
+
+from ollama._types import (
+    SubscriptableBaseModel
+)
 
 class Modelfile(TypedDict):
     """
@@ -27,25 +43,44 @@ class Modelfile(TypedDict):
     system: str
 
 
+class Property(SubscriptableBaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    type: Optional[Union[str, Sequence[str]]] = None
+    items: Optional[Any] = None
+    description: Optional[str] = None
+    enum: Optional[Sequence[Any]] = None
+
+
+class Parameters(SubscriptableBaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    type: Optional[Literal['object']] = 'object'
+    defs: Optional[Any] = Field(None, alias='$defs')
+    items: Optional[Any] = None
+    required: Optional[Sequence[str]] = None
+    properties: Optional[Mapping[str, Property]] = None
+
+
 class Function(SubscriptableBaseModel):
     """
-    Tool call function.
+    Function definition
     """
+    name: Optional[str] = None
+    description: Optional[str] = None
+    parameters: Optional[Parameters] = None
 
-    name: str
-    'Name of the function.'
 
+class _Function(SubscriptableBaseModel):
+    name: Optional[str] = None
     arguments: Mapping[str, Any]
-    'Arguments of the function.'
 
 
 class ToolCall(SubscriptableBaseModel):
     """
     Model tool calls.
+    This uses the "arguments" field of the
+    Function, NOT "parameters".
     """
-
-    function: Function
-    'Function to be called.'
+    function: _Function
 
 class ToolResponse(TypedDict):
     """

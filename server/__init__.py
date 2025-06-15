@@ -14,6 +14,8 @@ from .startup import (
 
 from .utils import (
     TOOLS,
+    TOOLS_LOOKUP,
+    SYSTEM_PROMPT_TOOLS,
     generate_random_string,
     handle_tool_calls
 )
