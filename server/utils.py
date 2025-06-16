@@ -101,6 +101,52 @@ For each function call, return a json object with function name and arguments wi
     """
 )
 
+SYSTEM_PROMPT_THIKING_SUPPRESION = (
+"""
+{- range $i, $_ := .Messages }}
+{{- $last := eq (len (slice $.Messages $i)) 1 -}}
+{{- if eq .Role "user" }}<|im_start|>user
+{{ .Content }}
+{{/* This part correctly appends /think or /no_think based on $.IsThinkSet and $.Think */}}
+{{- if and $.IsThinkSet (eq $i $lastUserIdx) }}
+   {{- if $.Think -}}
+      {{- " "}}/think
+   {{- else -}}
+      {{- " "}}/no_think
+   {{- end -}}
+{{- end }}<|im_end|>
+{{ else if eq .Role "assistant" }}<|im_start|>assistant
+{{/* Modified condition: Only render .Thinking if $.Think is true (user explicitly wants to think) */}}
+{{ if (and $.Think .Thinking (or $last (gt $i $lastUserIdx))) -}}
+<think>{{ .Thinking }}</think>
+{{ end -}}
+{{ if .Content }}{{ .Content }}
+{{- else if .ToolCalls }}<tool_call>
+{{ range .ToolCalls }}{"name": "{{ .Function.Name }}", "arguments": {{ .Function.Arguments }}}
+{{ end }}</tool_call>
+{{- end }}{{ if not $last }}<|im_end|>
+{{ end }}
+{{- else if eq .Role "tool" }}<|im_start|>user
+<tool_response>
+{{ .Content }}
+</tool_response><|im_end|>
+{{ end }}
+{{- if and (ne .Role "assistant") $last }}<|im_start|>assistant
+{{/* Removed the conditional empty <think> block.
+     If $.Think is true, the model should generate the <think> block itself.
+     If $.Think is false, no thinking is desired.
+     Original block that was here:
+     {{ if and $.IsThinkSet (not $.Think) -}}
+     <think>
+
+     </think>
+     {{ end -}}
+*/}}
+{{ end }}
+{{- end }}
+"""
+)
+
 
 def handle_tool_calls(message: Message) -> list[ToolResponse]:
     out = []

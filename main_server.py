@@ -9,6 +9,7 @@ from typing import (
 from server import (
     TOOLS,
     SYSTEM_PROMPT_TOOLS,
+    SYSTEM_PROMPT_THIKING_SUPPRESION,
     handle_tool_calls,
     LOGGER,
     BotSession
@@ -29,9 +30,8 @@ if __name__ == "__main__":
 
     MODELFILE = SESSION.modelfile
     print(f">> {MODELFILE['name']} is ready to use.")
-    
-    # Extend the session messages with initial system prompts
-    SESSION.extend_messages([
+
+    SESSION.prepend_messages((
         {
             'role':"system",
             'content':MODELFILE['system']
@@ -41,57 +41,20 @@ if __name__ == "__main__":
             'content':SYSTEM_PROMPT_TOOLS
         },
         {
-            'role':"user",
-            'content':"Hey Jarvis, how we doing today?",
+            'role':"system",
+            'content':SYSTEM_PROMPT_THIKING_SUPPRESION
         }
-    ])
+    ))
+
+    # Preload the model into memory with the system prompts
+    SESSION.chat(
+        stream=False,
+    )
+
+    thinking = False  # Initialize thinking state globally
+    skipUserInput = False  # Flag to skip user input after tool calls
 
     try:
-        thinking = False  # Initialize thinking state globally
-        skipUserInput = False  # Flag to skip user input after tool calls
-
-        initialresponse: Iterator[ChatResponse] = SESSION.chat(
-            stream=True,
-        )
-
-        print(f">> USER: {SESSION.get_message(2)['content']}\n")
-
-        print(">> JARVIS: ", end="", flush=True)
-        chunkedMessage: Message = {'role': 'assistant',
-                                        'content': ''}
-        """
-        The message we piece together from the streamed message chunks.
-        We feed this back into the chat for memory purposes. 
-        We add this now so it's in order, then mutate it as the
-        chunks stream in.
-        """
-        SESSION.add_message(chunkedMessage)
-
-        for chunk in initialresponse:
-            content = chunk['message']['content']
-            
-            if content.startswith("<think>"):
-                thinking = True
-                chunkedMessage['content'] += content
-                continue
-                
-            if thinking:
-                chunkedMessage['content'] += content
-                if content.endswith("</think>"):
-                    thinking = False
-                continue
-            
-            chunkedMessage['content'] += content
-            print(content, end="", flush=True)
-        print("\n")
-
-        # Remove this duplicate call - it's not needed
-        # response = chat(...)
-
-        # Reset the chunked message for the next user input
-        chunkedMessage = None
-        skipUserInput = False
-
         while True:
             if skipUserInput is False:
                 user_input = input(">> USER: ").strip()

@@ -15,7 +15,7 @@ from .utils import (
     Tool,
 )
 
-from typing import Iterator
+from typing import Iterator, Sequence
 from logging import getLogger, Logger
 from os.path import exists, isfile
 
@@ -76,12 +76,13 @@ class BotSession:
         self,
         params: str = "2b",
         logfile: str = "chatlog.json",
-        tools: list[Tool] = []
+        tools: list[Tool] = [],
+        defaultmsgs: Sequence[Message] = []
     ) -> None:
         self.read_config_file(params=params)
         self.LOGFILE = logfile
         self.TOOLS = tools
-        self.load_messages()
+        self.load_messages(defaultmsgs)
         LOGGER.info(f"BotSession initialized with params: {params}, logfile: {logfile}, tools: {tools}")
 
     @property
@@ -197,6 +198,17 @@ class BotSession:
             self.MESSAGES.extend(messages)
             LOGGER.info(f"Messages extended: {messages}")
 
+    def prepend_messages(self, startingmsgs: Sequence[Message]) -> None:
+        """
+        Prepends the default messages to the session's message list.
+        This is a thread-safe operation.
+        WARNING: Big memory and performance impact if the list is large.
+        """
+        with self.MSGLOCK:
+            if not all(msg in self.MESSAGES for msg in startingmsgs):
+                LOGGER.info("Prepending messages to the session.")
+                self.MESSAGES = list(startingmsgs) + self.MESSAGES
+
         
     def save(self) -> None:
         """
@@ -212,7 +224,8 @@ class BotSession:
                 LOGGER.error(f"Error saving messages: {err}")
         
 
-    def load_messages(self) -> None:
+    def load_messages(self,
+                      defaults: Sequence[Message]) -> None:
         """
         Loads the messages from the chat log file.
         This is a thread-safe operation.
@@ -221,11 +234,24 @@ class BotSession:
             LOGGER.warning(f"Log file {self.LOGFILE} does not exist. Starting fresh.")
             self.MESSAGES = []
             return
+
         with self.MSGLOCK:
             try:
                 with open(self.LOGFILE, "r") as f:
-                    self.MESSAGES = load(f)
+                    messages = load(f)
                     LOGGER.info("Messages loaded successfully.")
+            
+                # Check if defaults are already present in the messages
+                if all(msg in messages for msg in defaults):
+                    LOGGER.info("Defaults already present in messages, skipping addition.")
+                    self.MESSAGES = messages
+                    return
+
+                # Prepend default messages to the session
+                LOGGER.info("Prepending default messages to the session.")
+                self.MESSAGES = list(defaults) + messages
+
+                
             except ValueError:
                 LOGGER.warning("No previous messages found, starting fresh.")
 
@@ -248,7 +274,8 @@ class BotSession:
             try:
                 with open("config.json", "r") as f:
                     self.MODELFILE = load(f).get(params, None)
-                    
+                    return self.MODELFILE.copy() if self.MODELFILE else None
+
             except ValueError as err:
                 return None
 
@@ -304,7 +331,7 @@ class BotSession:
         try:
             # If the model is not available, create it
             # TODO: Import model filecontent.
-            print(f">> {modelcopy['name']} not found. Creating from config...")
+            print(f">> {name} not found. Creating from config...")
             create(
                 model=name,
                 from_=model,
