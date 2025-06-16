@@ -27,7 +27,7 @@
   "model": "qwen3:14b",
   "name": "JARVIS",
   "description": "A hyper-intelligent, British-accented AI assistant modeled after the J.A.R.V.I.S. from Iron Man. Precision with a touch of wit.",
-  "temperature": 0.7,
+  "temperature": 0.2,
   "top_p": 0.95,
   "top_k": 20,
   "presence_penalty": 0.4,

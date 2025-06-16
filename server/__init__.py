@@ -6,10 +6,8 @@ from ._types import (
 )
 
 from .startup import (
-    read_config_file,
-    init_model,
-    MODELFILE,
     LOGGER,
+    BotSession
 )
 
 from .utils import (
@@ -22,14 +20,14 @@ from .utils import (
 
 __all__ = (
     "Modelfile",
-    "read_config_file",
-    "init_model",
-    "MODELFILE",
-    "LOGGER",
-    "TOOLS",
-    "generate_random_string",
-    "handle_tool_calls",
     "Function",
     "ToolCall",
-    "ToolResponse"
+    "ToolResponse",
+    "LOGGER",
+    "BotSession",
+    "TOOLS",
+    "TOOLS_LOOKUP",
+    "SYSTEM_PROMPT_TOOLS",
+    "generate_random_string",
+    "handle_tool_calls"
 )

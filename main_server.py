@@ -7,30 +7,31 @@ from typing import (
     Iterator
 )
 from server import (
-    read_config_file,
-    init_model,
     TOOLS,
     SYSTEM_PROMPT_TOOLS,
     handle_tool_calls,
+    LOGGER,
+    BotSession
 )
 
 from json import dumps
 
 if __name__ == "__main__":
-    read_config_file(params="14b")
+    SESSION = BotSession(params="14b",
+                         logfile="chat_history.json",
+                         tools=TOOLS)
 
     # Attempt to init the model
-    yn, err = init_model()
-    if not yn:
+    yn, err = SESSION.init_model()
+    if not yn or not SESSION.modelfile:
         print(f">> {err}")
         exit(0)
 
-    global MODELFILE
-    from server.startup import MODELFILE
+    MODELFILE = SESSION.modelfile
     print(f">> {MODELFILE['name']} is ready to use.")
     
-
-    messages: list[Message] = [
+    # Extend the session messages with initial system prompts
+    SESSION.extend_messages([
         {
             'role':"system",
             'content':MODELFILE['system']
@@ -43,19 +44,17 @@ if __name__ == "__main__":
             'role':"user",
             'content':"Hey Jarvis, how we doing today?",
         }
-    ]
+    ])
 
     try:
         thinking = False  # Initialize thinking state globally
+        skipUserInput = False  # Flag to skip user input after tool calls
 
-        initialresponse: Iterator[ChatResponse] = chat(
-            model=MODELFILE['name'],
-            messages=messages,
+        initialresponse: Iterator[ChatResponse] = SESSION.chat(
             stream=True,
-            tools=TOOLS
         )
 
-        print(f">> USER: {messages[2]['content']}\n")
+        print(f">> USER: {SESSION.get_message(2)['content']}\n")
 
         print(">> JARVIS: ", end="", flush=True)
         chunkedMessage: Message = {'role': 'assistant',
@@ -66,7 +65,7 @@ if __name__ == "__main__":
         We add this now so it's in order, then mutate it as the
         chunks stream in.
         """
-        messages.append(chunkedMessage)
+        SESSION.add_message(chunkedMessage)
 
         for chunk in initialresponse:
             content = chunk['message']['content']
@@ -101,7 +100,7 @@ if __name__ == "__main__":
                     print(">> JARVIS: Good day.")
                     raise KeyboardInterrupt
 
-                messages.append(
+                SESSION.add_message(
                     {
                         'role':"user",
                         'content':user_input
@@ -110,11 +109,8 @@ if __name__ == "__main__":
 
             skipUserInput = False
 
-            responsechunks: Iterator[ChatResponse] = chat(
-                model=MODELFILE['name'],
-                messages=messages,
+            responsechunks: Iterator[ChatResponse] = SESSION.chat(
                 stream=True,
-                tools=TOOLS
             )
 
             print(">> JARVIS: ", end="", flush=True)
@@ -123,7 +119,7 @@ if __name__ == "__main__":
                 'content': ''
             }
 
-            messages.append(chunkedMessage)
+            SESSION.add_message(chunkedMessage)
             
             for response in responsechunks:
                 content = response['message']['content']
@@ -141,12 +137,13 @@ if __name__ == "__main__":
 
                 print(content, end="", flush=True)
 
+
                 if tool_calls:
                     print(f"\n>> TOOL CALLS: {tool_calls}")
                     res = handle_tool_calls(response['message'])
                     for tool in res:
                         print(f">> TOOL: {tool['name']} - {tool['content']}")
-                        messages.append(tool)
+                        SESSION.add_message(tool)
                     
                     skipUserInput = True
                     break
@@ -157,6 +154,5 @@ if __name__ == "__main__":
 
     except KeyboardInterrupt:
         print("\n>> JARVIS: Good day.")
-        with open("chat_history.json", "w") as f:
-            f.write(dumps(messages, indent=4))
+        SESSION.save()
 
