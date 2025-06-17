@@ -50,7 +50,7 @@ class AudioWatchDog:
         'recordingProcess',
         'transcriptionProcess',
         'transcription',
-        'processManager'
+        'processManager',
         'voiceActivityDetector',
     )
 

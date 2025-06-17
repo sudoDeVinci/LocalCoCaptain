@@ -176,4 +176,5 @@ def record_audio(
     finally:
         p.terminate()    
         # Concatenate all chunks efficiently
-        return concatenate(audio_data)
+    
+    return concatenate(audio_data)

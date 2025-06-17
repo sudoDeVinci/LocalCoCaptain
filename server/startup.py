@@ -30,59 +30,70 @@ Set to log at the INFO level by default (convenience).
 LOGGER.setLevel('INFO')
 
 class BotSession:
-    MODELFILE: Modelfile | None = None
-    """
-    The model file content loaded from the config file.
-    This is initialized to None and will be populated by
-    the `read_config_file` function.
-    """
-
-    MESSAGES: list[Message] = []
-    """
-    A list of messages for this session.
-    """
-
-    LOGFILE: str = "chatlog.json"
-    """
-    The path to the chat log file where the conversation
-    will be saved. Defaults to "chatlog.json".
-    """
-
-    MFLOCK: Lock = Lock()
-    """
-    A threading lock to ensure that the modelfile
-    is interacted with in a thread-safe manner.
-    """
-
-    MSGLOCK: Lock = Lock()
-    """
-    A threading lock to ensure that the messages
-    are interacted with in a thread-safe manner.
-    """
-
-    NAME: str | None = None
-    """
-    The name of the model being used.
-    This is initialized to None and will be set
-    when the model is successfully initialized.
-    """
-
-    TOOLS: list[Tool]
-    """
-    A list of tools that can be used by the model.
-    """
+    __slots__ = (
+        "_MODELFILE",
+        "_MESSAGES",
+        "LOGFILE",
+        "MFLOCK",
+        "MSGLOCK",
+        "_NAME",
+        "TOOLS"
+    )
 
     def __init__(
         self,
         params: str = "2b",
         logfile: str = "chatlog.json",
-        tools: list[Tool] = [],
+        tools: list[Tool] = None,
         defaultmsgs: Sequence[Message] = []
     ) -> None:
-        self.read_config_file(params=params)
+        
+        self._MODELFILE: Modelfile | None = None
+        """
+        The model file content loaded from the config file.
+        This is initialized to None and will be populated by
+        the `read_config_file` function.
+        """
+
+        self._MESSAGES: list[Message] = []
+        """
+        A list of messages for this session.
+        """
+
         self.LOGFILE = logfile
-        self.TOOLS = tools
+        """
+        The path to the chat log file where the conversation
+        will be saved. Defaults to "chatlog.json".
+        """
+        
+        self.TOOLS = tools if tools else []
+        """
+        A list of tools that the bot can use during the chat session.
+        If no tools are provided, it defaults to an empty list.
+        """
+
+        self._NAME: str | None = None
+        """
+        The name of the model being used.
+        This is initialized to None and will be set
+        when the model is successfully initialized.
+        """
+
+        self.MFLOCK: Lock = Lock()
+        """
+        A threading lock to ensure that the modelfile
+        is interacted with in a thread-safe manner.
+        """
+
+        self.MSGLOCK: Lock = Lock()
+        """
+        A threading lock to ensure that the messages
+        are interacted with in a thread-safe manner.
+        """
+        self.read_config_file(params=params)
+
         self.load_messages(defaultmsgs)
+
         LOGGER.info(f"BotSession initialized with params: {params}, logfile: {logfile}, tools: {tools}")
 
     @property
@@ -97,7 +108,7 @@ class BotSession:
             - Modelfile | None: The model file content as a dictionary, or None if not available.
         """
         with self.MFLOCK:
-            modelcopy = self.MODELFILE.copy() if self.MODELFILE else None
+            modelcopy = self._MODELFILE.copy() if self._MODELFILE else None
             return modelcopy
         
     @property
@@ -112,7 +123,7 @@ class BotSession:
             - list[Message]: A copy of the messages in the session.
         """
         with self.MSGLOCK:
-            return self.MESSAGES.copy()
+            return self._MESSAGES.copy()
         
     @property
     def name(self) -> str | None:
@@ -122,7 +133,7 @@ class BotSession:
         Returns:
             - str | None: The name of the model, or None if not set.
         """
-        return self.NAME
+        return self._NAME
         
     def chat(
         self,
@@ -140,8 +151,8 @@ class BotSession:
         """
         with self.MSGLOCK:
             return chat(
-                model=self.NAME,
-                messages=self.MESSAGES,
+                model=self._NAME,
+                messages=self._MESSAGES,
                 stream=stream,
                 tools=self.TOOLS
             )
@@ -158,7 +169,7 @@ class BotSession:
             Message (Message): The message to be added to the session.
         """
         with self.MSGLOCK:
-            self.MESSAGES.append(Message)
+            self._MESSAGES.append(Message)
             LOGGER.info(f"Message added: {Message}")
 
     def get_message(
@@ -178,8 +189,8 @@ class BotSession:
             Message | None: The message at the specified index, or None if the index is out of range.
         """
         with self.MSGLOCK:
-            if 0 <= index < len(self.MESSAGES):
-                return self.MESSAGES[index].copy()
+            if 0 <= index < len(self._MESSAGES):
+                return self._MESSAGES[index].copy()
             LOGGER.warning(f"Index {index} out of range for messages.")
             return None
 
@@ -195,7 +206,7 @@ class BotSession:
             messages (list[Message]): The list of messages to be added to the session.
         """
         with self.MSGLOCK:
-            self.MESSAGES.extend(messages)
+            self._MESSAGES.extend(messages)
             LOGGER.info(f"Messages extended: {messages}")
 
     def prepend_messages(self, startingmsgs: Sequence[Message]) -> None:
@@ -205,9 +216,9 @@ class BotSession:
         WARNING: Big memory and performance impact if the list is large.
         """
         with self.MSGLOCK:
-            if not all(msg in self.MESSAGES for msg in startingmsgs):
+            if not all(msg in self._MESSAGES for msg in startingmsgs):
                 LOGGER.info("Prepending messages to the session.")
-                self.MESSAGES = list(startingmsgs) + self.MESSAGES
+                self._MESSAGES = list(startingmsgs) + self._MESSAGES
 
         
     def save(self) -> None:
@@ -218,7 +229,7 @@ class BotSession:
         with self.MSGLOCK:
             try:
                 with open(self.LOGFILE, "w") as f:
-                    f.write(dumps(self.MESSAGES, indent=4))
+                    f.write(dumps(self._MESSAGES, indent=4))
                     LOGGER.info("Messages saved successfully.")    
             except ValueError as err:
                 LOGGER.error(f"Error saving messages: {err}")
@@ -232,7 +243,7 @@ class BotSession:
         """
         if not exists(self.LOGFILE) or not isfile(self.LOGFILE):
             LOGGER.warning(f"Log file {self.LOGFILE} does not exist. Starting fresh.")
-            self.MESSAGES = []
+            self._MESSAGES = []
             return
 
         with self.MSGLOCK:
@@ -244,12 +255,12 @@ class BotSession:
                 # Check if defaults are already present in the messages
                 if all(msg in messages for msg in defaults):
                     LOGGER.info("Defaults already present in messages, skipping addition.")
-                    self.MESSAGES = messages
+                    self._MESSAGES = messages
                     return
 
                 # Prepend default messages to the session
                 LOGGER.info("Prepending default messages to the session.")
-                self.MESSAGES = list(defaults) + messages
+                self._MESSAGES = list(defaults) + messages
 
                 
             except ValueError:
@@ -273,8 +284,8 @@ class BotSession:
         with self.MFLOCK:
             try:
                 with open("config.json", "r") as f:
-                    self.MODELFILE = load(f).get(params, None)
-                    return self.MODELFILE.copy() if self.MODELFILE else None
+                    self._MODELFILE = load(f).get(params, None)
+                    return self._MODELFILE.copy() if self._MODELFILE else None
 
             except ValueError as err:
                 return None
@@ -288,18 +299,18 @@ class BotSession:
             str | None: The model file content as a string, or None if the model file is not available.
         """
         with self.MFLOCK:
-            if self.MODELFILE is None: return None
+            if self._MODELFILE is None: return None
         
             return (
-                f"FROM {self.MODELFILE['model'].split(':')[0]}"
+                f"FROM {self._MODELFILE['model'].split(':')[0]}"
                 "PARAMETER stop \"<|eot|>\"\n"
                 "PARAMETER stop \"</answer>\"\n"
-                f"PARAMETER top_p {self.MODELFILE['top_p']}\n"
-                f"PARAMETER presence_penalty {self.MODELFILE['presence_penalty']}\n"
-                f"PARAMETER frequency_penalty {self.MODELFILE['frequency_penalty']}\n"
-                f"PARAMETER context_length {self.MODELFILE['context_length']}\n"
-                f"PARAMETER temperature {self.MODELFILE['temperature']}\n"
-                f"SYSTEM \"\"\"\n{self.MODELFILE['system']}\n\"\"\"\n"
+                f"PARAMETER top_p {self._MODELFILE['top_p']}\n"
+                f"PARAMETER presence_penalty {self._MODELFILE['presence_penalty']}\n"
+                f"PARAMETER frequency_penalty {self._MODELFILE['frequency_penalty']}\n"
+                f"PARAMETER context_length {self._MODELFILE['context_length']}\n"
+                f"PARAMETER temperature {self._MODELFILE['temperature']}\n"
+                f"SYSTEM \"\"\"\n{self._MODELFILE['system']}\n\"\"\"\n"
             )
 
 
@@ -313,7 +324,7 @@ class BotSession:
         # List all models
         models: ListResponse = list_models()
         with self.MFLOCK:
-            modelcopy = self.MODELFILE.copy() if self.MODELFILE else None
+            modelcopy = self._MODELFILE.copy() if self._MODELFILE else None
 
         if modelcopy is None:
             return (False, "Model configuration file is empty.",)
@@ -321,7 +332,7 @@ class BotSession:
         # Check if the main model is available
         for model in models['models']:
             if modelcopy['name'] in model['model']:
-                self.NAME = modelcopy['name']
+                self._NAME = modelcopy['name']
                 return (True, None,)
 
         system = modelcopy.pop("system", None)
@@ -347,7 +358,7 @@ class BotSession:
         models = list_models()
         for model in models['models']:
             if name in model['model']:
-                self.NAME = name
+                self._NAME = name
                 return (True, None,)
             
         # If the model is still not available, return an error

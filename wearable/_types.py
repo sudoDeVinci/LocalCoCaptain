@@ -19,7 +19,7 @@ class AudioConfig:
         'sample_rate',
         'chunk_size',
         'format',
-        'channels'
+        'channels',
         'buffer_duration',
         'chunks_per_buffer'
     )
