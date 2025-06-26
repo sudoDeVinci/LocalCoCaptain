@@ -159,7 +159,7 @@ class BotSession:
         
     def add_message(
         self,
-        Message: Message
+        message: Message
     ) -> None:
         """
         Adds a message to the session's message list.
@@ -169,7 +169,7 @@ class BotSession:
             Message (Message): The message to be added to the session.
         """
         with self.MSGLOCK:
-            self._MESSAGES.append(Message)
+            self._MESSAGES.append(message)
             LOGGER.info(f"Message added: {Message}")
 
     def get_message(
@@ -288,6 +288,7 @@ class BotSession:
                     return self._MODELFILE.copy() if self._MODELFILE else None
 
             except ValueError as err:
+                LOGGER.error(f"Error reading config file: {err}")
                 return None
 
 
