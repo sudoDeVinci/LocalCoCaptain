@@ -1,11 +1,7 @@
 from ollama import Tool, Message
 from ._types import (
-    Function,
-    _Function,
     ToolCall,
     ToolResponse,
-    Parameters,
-    Property
 )
 from typing import Sequence
 

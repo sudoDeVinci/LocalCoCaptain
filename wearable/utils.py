@@ -1,7 +1,6 @@
 from whisper import (
     Whisper,
     load_model,
-    load_audio,
     log_mel_spectrogram,
     DecodingOptions,
     decode as decode_whisper,
@@ -11,28 +10,19 @@ from numpy import (ndarray,
                    uint32,
                    ceil,
                    zeros,
-                   frombuffer,
-                   int16,
-                   concatenate,
 )
 
 from numba import (njit,
-                   jit,
                    types,
                    prange,
 )
 from typing import List
-import os
 from torch import (
-    cuda,
     inference_mode,
 )
-from datetime import datetime
-import pyaudio
 
 
-TRANSCRIBER: Whisper = load_model("base",
-                                  in_memory=True)
+TRANSCRIBER: Whisper | None = None
 """
 Transcription Whisper model for voice to text conversion.
 This model is loaded once and used for all transcriptions.
@@ -47,10 +37,13 @@ This model is loaded once and used for all transcriptions.
     fastmath=True,
     cache=True,
 )
-def pad_or_trim(array:ndarray,
-                      length: uint32=480000
+def pad_or_trim(
+    array:ndarray,
+    length: uint32=480000
 ) -> ndarray[float32, 1]:
-    """NumPy-only version optimized for Numba"""
+    """
+    NumPy-only pad/trim implementation for Numba use. Performance is about equal.
+    """
     # Simple slice for 1D array trimming
     if array.shape[0] > length:
         return array[:length]
@@ -73,17 +66,28 @@ def pad_or_trim(array:ndarray,
     fastmath=True,
     cache=True,
 )
-def chunk_audio(audio: ndarray[float32],
+def chunk_audio(audio: ndarray[float32, 1],
                 CHUNK_LIM: uint32 = 480000,
 ) -> List[ndarray[float32]]:
+    """
+    Chunk audio into fixed-size segments of CHUNK_LIM samples.
+    Args:
+        audio (ndarray[float32, 1]): Audio sample as a 1D NumPy array.
+        CHUNK_LIM (uint32): Length of each chunk in samples (default: 480000, which is 30 seconds at 16kHz).
+    Returns:
+        List[ndarray[float32]]: List of audio chunks, each padded or trimmed to CHUNK_LIM samples.
+    """
     # Pre-allocate arrays for better memory efficiency
     audio_length = audio.shape[0]
     num_chunks = max(1, uint32(ceil(audio_length / CHUNK_LIM)))
-    audios = [zeros(shape=(1,),
-                    dtype=float32)] * num_chunks
+
+    # Pre-allocate the list with zeros
+    # Since we either pad or trim each chunk to CHUNK_LIM,
+    # we can pre-allocate a 2D array for all chunks
+    audios = zeros(shape=(num_chunks, CHUNK_LIM), dtype=float32)
 
     # if smaller than 30 sec, move on
-    if audio_length <= CHUNK_LIM:
+    if num_chunks == 1:
         padded = pad_or_trim(audio, CHUNK_LIM)
         audios[0] = padded  # Use index instead of append
 
@@ -107,74 +111,53 @@ def chunk_audio(audio: ndarray[float32],
 
 
 def transcribe_audio(audio: list[ndarray[float32, 1]]) -> str:
-    """Transcribe audio using Whisper"""
+    """
+    Transcribe audio using Whisper english model
+    Args:
+        audio (list[ndarray[float32, 1]]): List of audio chunks as 1D NumPy arrays.
+    Returns:
+        str: Transcribed text from the audio chunks.
+    Raises:
+        RuntimeError: If the Whisper transcriber fails to initialize.
+    Note:
+        This function assumes the audio is already preprocessed and in the correct format.
+        It uses the Whisper model to decode the audio chunks into text.
+        The audio chunks should be in the format expected by Whisper (e.g., 16kHz, mono).
+    """
+
+    if TRANSCRIBER is None:
+        try:
+            init_transcriber()
+        except Exception as e:
+            raise RuntimeError("Failed to initialize Whisper transcriber") from e
+
     device = TRANSCRIBER.device
     options = DecodingOptions(
-        temperature=0,
-        fp16=False,  # No clue why but fp16 is leagues slower
-        language="en",
-        without_timestamps=True,  # Skip timestamp generation
-        beam_size=1  # Smaller beam size is faster
+        temperature=0,              # Temperature to 0 for deterministic results
+        fp16=False,                 # No clue why but fp16 is leagues slower
+        language="en",              # Set language to English - usually faster
+        without_timestamps=True,    # Skip timestamp generation
+        beam_size=1                 # Smaller beam size is faster
     )
 
-    # Pre-allocate the results list with the exact size needed
-    results = [""] * len(audio)
-    # audio = [snippet.astype(dtype=float16, order='C', copy=False) for snippet in audio]
+    results: list[str] = []
     with inference_mode():
         for i, chunk in enumerate(audio):
             # make log-Mel spectrogram and move to the same device as the model
             mel = log_mel_spectrogram(chunk).to(device)
             result = decode_whisper(TRANSCRIBER, mel, options)
-            results[i]+=result.text
+            if result is not None and result.text:
+                results.append(result.text.strip())
 
     return " ".join(results)
 
 
-def record_audio(
-    device_index: int = 1,
-    duration: int = 5,
-    sample_rate: int = 16000,
-    chunk_size: int = 1024
-) -> ndarray[float32]:
+def init_transcriber(model_name: str = "base") -> None:
     """
-    Record audio directly as NumPy array, avoiding unnecessary conversions
+    Initialize the Whisper transcriber model.
+    Args:
+        model_name (str): Name of the Whisper model to load (default: "base").
     """
-    p = pyaudio.PyAudio()
-    
-    format = pyaudio.paInt16
-    channels = 1
-    chunk_count = int(sample_rate / chunk_size * duration)
-    
-    # Pre-allocate NumPy array for efficiency
-    audio_data = []
-    
-    try:
-        stream = p.open(
-            format=format,
-            channels=channels,
-            rate=sample_rate,
-            input=True,
-            input_device_index=device_index,
-            frames_per_buffer=chunk_size
-        )
-        
-        print(f"Recording for {duration} seconds...")
-        
-        for i in range(chunk_count):
-            data = stream.read(chunk_size)
-            # Convert directly to float32 without intermediate storage
-            chunk_array = frombuffer(data, int16).astype(float32) / 32768.0
-            audio_data.append(chunk_array)
-        
-        stream.stop_stream()
-        stream.close()
+    global TRANSCRIBER
 
-    except ValueError as err:
-        print(f"Error: {err}")
-        print("Please check if the device index is correct and the microphone is connected.")
-        
-    finally:
-        p.terminate()    
-        # Concatenate all chunks efficiently
-    
-    return concatenate(audio_data)
+    TRANSCRIBER = load_model(model_name, in_memory=True) if TRANSCRIBER is None else TRANSCRIBER
