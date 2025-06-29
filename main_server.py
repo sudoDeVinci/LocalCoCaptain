@@ -1,7 +1,7 @@
 from ollama import (
     chat,
     ChatResponse,
-    Message,
+    Message
 )
 from typing import (
     Iterator
@@ -12,10 +12,9 @@ from server import (
     SYSTEM_PROMPT_THIKING_SUPPRESION,
     handle_tool_calls,
     LOGGER,
-    BotSession
+    BotSession,
+    ToolCall
 )
-
-from json import dumps
 
 if __name__ == "__main__":
     SESSION = BotSession(params="14b",
@@ -86,7 +85,7 @@ if __name__ == "__main__":
             
             for response in responsechunks:
                 content = response['message']['content']
-                tool_calls = response.get('message', {}).get('tool_calls', [])
+                tool_calls: list[ToolCall] = response.get('message', {}).get('tool_calls', [])
                 chunkedMessage['content'] += content
 
                 if content.startswith("<think>"):
@@ -103,6 +102,7 @@ if __name__ == "__main__":
 
                 if tool_calls:
                     print(f"\n>> TOOL CALLS: {tool_calls}")
+                    # chunkedMessage["tool_calls"] = tool_calls
                     res = handle_tool_calls(response['message'])
                     for tool in res:
                         print(f">> TOOL: {tool['name']} - {tool['content']}")

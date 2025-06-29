@@ -7,6 +7,7 @@ from ollama import (
     ListResponse,
     ResponseError
 )
+
 from ._types import (
     Modelfile
 )
@@ -18,6 +19,8 @@ from .utils import (
 from typing import Iterator, Sequence
 from logging import getLogger, Logger
 from os.path import exists, isfile
+from pathlib import Path
+from os import makedirs
 
 from json import load, dumps
 from threading import Lock
@@ -60,7 +63,8 @@ class BotSession:
         A list of messages for this session.
         """
 
-        self.LOGFILE = logfile
+        self.LOGFILE = Path(__file__).parent.resolve() / "memory" / logfile
+        self.LOGFILE.parent.mkdir(parents=True, exist_ok=True)
         """
         The path to the chat log file where the conversation
         will be saved. Defaults to "chatlog.json".
