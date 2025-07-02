@@ -3,7 +3,6 @@ TRANSCRIBER,
 pad_or_trim,
 chunk_audio,
 transcribe_audio,
-record_audio,
 )
 
 from .recording import AudioWatchDog, AudioChunk
@@ -14,7 +13,6 @@ __all__ = (
     "pad_or_trim",
     "chunk_audio",
     "transcribe_audio",
-    "record_audio",
     "AudioWatchDog",
     "AudioChunk",
     "AudioConfig",

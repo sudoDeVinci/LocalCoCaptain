@@ -47,3 +47,19 @@ class AudioConfig:
         self.channels = channels
         self.buffer_duration = buffer_duration
         self.chunks_per_buffer = int(sample_rate * buffer_duration / chunk_size)
+
+    def dict(self) -> dict:
+        """
+        Convert the configuration to a dictionary.
+
+        Returns:
+            dict: Dictionary representation of the audio configuration.
+        """
+        return {
+            'device_index': self.device_index,
+            'sample_rate': self.sample_rate,
+            'chunk_size': self.chunk_size,
+            'format': self.format,
+            'channels': self.channels,
+            'buffer_duration': self.buffer_duration
+        }

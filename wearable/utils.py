@@ -59,7 +59,7 @@ def pad_or_trim(
 
 
 @njit(
-    types.List(types.Array(types.float32, 1, 'C'))(
+    types.Array(types.float32, 2, 'C')(
         types.Array(types.float32, 1, 'C'),
         types.uint32,
     ),
@@ -68,7 +68,7 @@ def pad_or_trim(
 )
 def chunk_audio(audio: ndarray[float32, 1],
                 CHUNK_LIM: uint32 = 480000,
-) -> List[ndarray[float32]]:
+) -> ndarray[float32, 2]:
     """
     Chunk audio into fixed-size segments of CHUNK_LIM samples.
     Args:
@@ -110,7 +110,7 @@ def chunk_audio(audio: ndarray[float32, 1],
     return audios
 
 
-def transcribe_audio(audio: list[ndarray[float32, 1]]) -> str:
+def transcribe_audio(audio: ndarray[float32, 2]) -> str:
     """
     Transcribe audio using Whisper english model
     Args:
@@ -142,7 +142,8 @@ def transcribe_audio(audio: list[ndarray[float32, 1]]) -> str:
 
     results: list[str] = []
     with inference_mode():
-        for i, chunk in enumerate(audio):
+        for index in range(audio.shape[0]):
+            chunk = audio[index]
             # make log-Mel spectrogram and move to the same device as the model
             mel = log_mel_spectrogram(chunk).to(device)
             result = decode_whisper(TRANSCRIBER, mel, options)

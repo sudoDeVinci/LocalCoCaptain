@@ -11,14 +11,18 @@ from numpy import (
 from multiprocessing import Queue, Process, Manager
 from multiprocessing.managers import SyncManager, ValueProxy
 from threading import Lock
-from typing import Literal
-from wearable.utils import transcribe_audio, chunk_audio
+from typing import Literal, Callable
 from wearable._types import AudioConfig
 from time import sleep
 from webrtcvad import Vad
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from multiprocessing import Queue as QueueType
+else:
+    QueueType = Queue
 
 AudioChunk = ndarray[tuple[Literal[1024]], float32]
-
 
 
 class AudioWatchDog:
@@ -32,13 +36,13 @@ class AudioWatchDog:
 
     Attributes:
         audioInterface (pyaudio.PyAudio): The audio interface for recording.
-        audioQueue (Queue[AudioChunk]): Queue to store audio chunks.
+        audioQueue (QueueType[AudioChunk]): Queue to store audio chunks.
         audioConfig (AudioConfig): Configuration for audio recording.
         audioLock (Lock): Lock to manage access to the audio interface.
         isRecording (bool): Flag indicating if recording is active.
         recordingProcess (Process | None): Process for recording audio.
         transcriptionProcess (Process | None): Process for transcribing audio.
-        transcription (Queue[str]): Queue to store transcribed text.
+        transcription (QueueType[str]): Queue to store transcribed text.
     """
     __slots__ = (
         'EOF',
@@ -52,54 +56,49 @@ class AudioWatchDog:
         'transcription',
         'processManager',
         'voiceActivityDetector',
+        'audioConsumers',
     )
 
-    EOF: str | None = None 
-    audioInterface: pyaudio.PyAudio
-    audioQueue: Queue[AudioChunk]
-    audioConfig: AudioConfig
-    audioLock: Lock = Lock()
-
-    isRecording: ValueProxy[bool]
-    recordingProcess: Process | None = None
-    transcriptionProcess: Process | None = None
-    transcription: Queue[str]
-    processManager: SyncManager
-
-    voiceActivityDetector: Vad | None = None
 
     def __init__(
         self,
         audioConfig: AudioConfig,
         audioInterface: pyaudio.PyAudio | None = None,
+        audioConsumers: list[Callable[[], None]] | None = None,
         eof: str | None = None
     ) -> None:
-        self.audioConfig = audioConfig
-        self.audioInterface = audioInterface if audioInterface else pyaudio.PyAudio()
-        self.EOF = eof
-        self.voiceActivityDetector = Vad()
+        print("🔊 Initializing AudioWatchDog...")
+        self.audioConfig: AudioConfig = audioConfig
+        self.audioInterface: pyaudio.PyAudio = audioInterface if audioInterface else pyaudio.PyAudio()
+        self.EOF: str | None = eof
+        self.voiceActivityDetector: Vad | None = Vad()
         self.voiceActivityDetector.set_mode(0)
+        print(f"Audio configuration: {self.audioConfig}")
 
         # Shared values require a manager to keep syncd
-        self.processManager = Manager()
-        self.audioQueue = self.processManager.Queue()
-        self.transcription = self.processManager.Queue()
-        self.isRecording = self.processManager.Value(bool, False)
+        self.processManager: SyncManager = Manager()
+        self.audioQueue: 'QueueType[AudioChunk]' = self.processManager.Queue()
+        self.transcription: 'QueueType[str]' = self.processManager.Queue()
+        self.isRecording: ValueProxy[bool] = self.processManager.Value(bool, False)
+
+        self.audioConsumers: list[Callable[[], None]] = audioConsumers if audioConsumers else []
+
+        self.audioLock: Lock = Lock()
+
+        self.recordingProcess: Process | None = None
+        self.transcriptionProcess: Process | None = None
 
 
     def __del__(self):
-        if hasattr(self, 'isRecording') and self.isRecording.value:
+        if self.isRecording.value:
             self.stop_recording()
         self.audioLock.acquire()
         self.audioInterface.terminate()
         self.audioLock.release()
 
-
-    def _detect_voice_activity(self, audiochunk: AudioChunk) -> bool:
-        return self.voiceActivityDetector.is_speech(
-            audiochunk.tobytes(),
-            sample_rate=self.audioConfig.sample_rate
-        )
+    def _detect_voice_activity(self, audio_chunk: bytes) -> bool:
+        #TODO: Implement a more robust voice activity detection
+        return True
 
 
     def _audio_producer_callback(self) -> None:
@@ -140,13 +139,30 @@ class AudioWatchDog:
             self.audioLock.release()
             print("🎤 Recording stopped.")
 
+    def register_audio_consumer(self, callback: Callable) -> None:
+        """
+        Register a callback function that will be called to process audio chunks.
+        This allows for custom processing of audio data in a separate thread or process.
+        
+        Args:
+            callback (Callable): A function that takes no arguments and returns None.
+        """
+        if not callable(callback):
+            raise ValueError("Callback must be a callable function.")
+        self.audioConsumers.append(callback)
+        print(f"✅ Audio consumer callback registered: {callback.__name__}")
 
-    def _audio_transcriber_callback(self) -> None:
+
+    def _audio_consumer_callback(self) -> None:
         while self.isRecording.value:
             # When there's enough chunks, send for transcription
             if self.audioQueue.qsize() >= self.audioConfig.chunks_per_buffer:
                 try:
-                    self._transcribe_audio()
+                    chunk = concatenate(
+                        [self.audioQueue.get_nowait() for _ in range(self.audioConfig.chunks_per_buffer)]
+                    )
+                    for consumer in self.audioConsumers:
+                        consumer(chunk)
                 except ValueError as err:
                     print(f"Transcription error: {err}")
                     continue
@@ -161,14 +177,6 @@ class AudioWatchDog:
                 except ValueError as err:
                     print(f"Transcription error: {err}")
                     break
-
-
-    def _transcribe_audio(self) -> None:
-        snippet: AudioChunk = concatenate([self.audioQueue.get() for _ in range(self.audioConfig.chunks_per_buffer)])
-        chunks = chunk_audio(audio=snippet)
-        text = transcribe_audio(chunks).strip()
-        self.transcription.put(text)
-
 
 
     def start_recording(self) -> None:
@@ -189,7 +197,7 @@ class AudioWatchDog:
         )
 
         self.transcriptionProcess = Process(
-            target=self._audio_transcriber_callback,
+            target=self._audio_consumer_callback,
             name="AudioTranscriber"
         )
 
@@ -208,7 +216,7 @@ class AudioWatchDog:
         self.isRecording.value = False
 
         if self.recordingProcess and self.recordingProcess.is_alive():
-            self.recordingProcess.join(timeout=1.0)
+            self.recordingProcess.join(timeout=1.5)
             if self.recordingProcess.is_alive():
                 print("Recording process did not terminate gracefully - terminating forcefully.")
                 self.recordingProcess.terminate()
@@ -216,7 +224,7 @@ class AudioWatchDog:
 
 
         if self.transcriptionProcess and self.transcriptionProcess.is_alive():
-            self.transcriptionProcess.join(timeout=1.0)
+            self.transcriptionProcess.join(timeout=1.5)
             if self.transcriptionProcess.is_alive():
                 print("Transcription process did not terminate gracefully - terminating forcefully.")
                 self.transcriptionProcess.terminate()
