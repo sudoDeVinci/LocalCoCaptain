@@ -15,7 +15,7 @@ from typing import Literal, Callable
 from wearable._types import AudioConfig
 from time import sleep
 from webrtcvad import Vad
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from multiprocessing import Queue as QueueType
@@ -63,11 +63,11 @@ class AudioWatchDog:
     def __init__(
         self,
         audioConfig: AudioConfig,
-        audioInterface: pyaudio.PyAudio | None = None,
-        audioConsumers: list[Callable[[], None]] | None = None,
-        eof: str | None = None
+        audioInterface: Optional[pyaudio.PyAudio] = None,
+        audioConsumers: Optional[list[Callable[[], None]]] = None,
+        eof: Optional[str] = None
     ) -> None:
-        print("🔊 Initializing AudioWatchDog...")
+        print(">> Initializing AudioWatchDog...")
         self.audioConfig: AudioConfig = audioConfig
         self.audioInterface: pyaudio.PyAudio = audioInterface if audioInterface else pyaudio.PyAudio()
         self.EOF: str | None = eof
