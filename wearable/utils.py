@@ -1,25 +1,34 @@
 from whisper import (
     Whisper,
     load_model,
+    load_audio,
     log_mel_spectrogram,
     DecodingOptions,
     decode as decode_whisper,
 )
+
 from numpy import (ndarray,
                    float32,
                    uint32,
+                   int16,
                    ceil,
                    zeros,
+                   frombuffer
 )
 
 from numba import (njit,
                    types,
                    prange,
 )
-from typing import List
+
+from typing import Final, TypedDict, Optional, Any
+
 from torch import (
     inference_mode,
+    device as torch_device,
+    cuda
 )
+from pyaudio import PyAudio, paInt16
 
 
 TRANSCRIBER: Whisper | None = None
@@ -27,6 +36,110 @@ TRANSCRIBER: Whisper | None = None
 Transcription Whisper model for voice to text conversion.
 This model is loaded once and used for all transcriptions.
 """
+
+DEVICE: Final[str] = "cuda" if cuda.is_available() else "cpu"
+
+
+class PaDeviceInfo(TypedDict):
+    """
+    Reflection of PyAudio's device info dictionary structure.
+    That in-turn mirrors PortAudio's PaDeviceInfo structure.
+    """
+    index: int
+    structVersion: Any
+    name: str
+    hostApi: Any
+    maxInputChannels: int
+    maxOutputChannels: int
+    defaultLowInputLatency: float
+    defaultLowOutputLatency: float
+    defaultHighInputLatency: float
+    defaultHighOutputLatency: float
+    defaultSampleRate: float
+
+def list_devices() -> list[PaDeviceInfo]:
+    """
+    List available audio input devices using PyAudio.
+    Returns:
+        list[PaDeviceInfo]: A list of dictionaries containing device information.
+    """
+    audio = PyAudio()
+    device_count = audio.get_device_count()
+    devices = []
+
+    for i in range(device_count):
+        device_info = audio.get_device_info_by_index(i)
+        devices.append(device_info)
+
+    audio.terminate()
+    return devices
+
+def get_default_input_device() -> Optional[PaDeviceInfo]:
+    """
+    Get the default audio input device using PyAudio.
+    Returns:
+        PaDeviceInfo | None: A dictionary containing device information, or None if no default input device is found.
+    """
+    try:
+        devices = list_devices()
+        for device in devices:
+            if device["name"].lower() == "default" and device["maxInputChannels"] > 0:
+                return device
+    except Exception:
+        return None
+    
+    return None
+
+def list_supported_sample_rates(device_index: int) -> list[int]:
+    """
+    List supported sample rates for a given audio input device.
+    Args:
+        device_index (int): The index of the audio input device.
+    Returns:
+        list[int]: A list of supported sample rates in Hz.
+    """
+    audio = PyAudio()
+    supported_rates = []
+    test_rates = [8000, 16000, 22050, 44100, 48000]
+    
+    for rate in test_rates:
+        try:
+            if audio.is_format_supported(
+                rate=rate,
+                input_device=device_index,
+                input_channels=1,
+                input_format=paInt16
+            ):
+                supported_rates.append(rate)
+        except:
+            pass
+    
+    audio.terminate()
+    return supported_rates
+
+def downsample_audio(data: bytes, original_rate: int, target_rate: int) -> bytes:
+    """
+    Downsample audio sample from one rate to another using simple decimation.
+
+    Args:
+        data (bytes): Original audio data in bytes.
+        original_rate (int): Original sample rate of the audio data.
+        target_rate (int): Target sample rate for downsampling.
+    Returns:
+        bytes: Downsampled audio data in bytes.
+    """
+
+    if original_rate <= target_rate:
+        return data  # No downsampling needed
+
+    # Convert bytes to numpy array
+    audio_data = frombuffer(data, dtype=int16)
+    
+    # Simple decimation - take every nth sample
+    decimation_factor = original_rate // target_rate
+    downsampled = audio_data[::decimation_factor]
+    return downsampled.tobytes(order='C')
+
 
 
 @njit(
@@ -161,4 +274,4 @@ def init_transcriber(model_name: str = "base") -> None:
     """
     global TRANSCRIBER
 
-    TRANSCRIBER = load_model(model_name, in_memory=True) if TRANSCRIBER is None else TRANSCRIBER
+    TRANSCRIBER = load_model(model_name,device=DEVICE, in_memory=True) if TRANSCRIBER is None else TRANSCRIBER

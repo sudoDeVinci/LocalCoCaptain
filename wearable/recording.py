@@ -71,8 +71,17 @@ class AudioWatchDog:
         self.audioConfig: AudioConfig = audioConfig
         self.audioInterface: pyaudio.PyAudio = audioInterface if audioInterface else pyaudio.PyAudio()
         self.EOF: str | None = eof
-        self.voiceActivityDetector: Vad | None = Vad()
-        self.voiceActivityDetector.set_mode(0)
+        
+        # Initialize voice activity detector
+        try:
+            self.voiceActivityDetector: Vad | None = Vad()
+            self.voiceActivityDetector.set_mode(3)
+            print("✅ Voice Activity Detector initialized")
+        except Exception as e:
+            print(f"⚠️ Failed to initialize VAD: {e}")
+            print("⚠️ Continuing without voice activity detection")
+            self.voiceActivityDetector = None
+            
         print(f"Audio configuration: {self.audioConfig}")
 
         # Shared values require a manager to keep syncd
@@ -90,20 +99,58 @@ class AudioWatchDog:
 
 
     def __del__(self):
-        if self.isRecording.value:
+        try:
             self.stop_recording()
-        self.audioLock.acquire()
-        self.audioInterface.terminate()
-        self.audioLock.release()
+        except (FileNotFoundError, ConnectionError, OSError):
+            # Manager may already be cleaned up, just terminate processes directly
+            if hasattr(self, 'recordingProcess') and self.recordingProcess and self.recordingProcess.is_alive():
+                self.recordingProcess.terminate()
+            if hasattr(self, 'transcriptionProcess') and self.transcriptionProcess and self.transcriptionProcess.is_alive():
+                self.transcriptionProcess.terminate()
+        
+        if hasattr(self, 'audioLock') and hasattr(self, 'audioInterface'):
+            try:
+                self.audioLock.acquire()
+                self.audioInterface.terminate()
+                self.audioLock.release()
+            except:
+                print("⚠️ Error terminating audio interface - some resources may not be released properly")
+                pass
 
     def _detect_voice_activity(self, audio_chunk: bytes) -> bool:
-        #TODO: Implement a more robust voice activity detection
-        return True
+        """
+        Detect voice activity using webrtcvad.
+        
+        Args:
+            audio_chunk: Raw 16-bit mono PCM audio data
+            
+        Returns:
+            bool: True if speech is detected, False otherwise
+        """
+        if self.voiceActivityDetector is None:
+            # dumb fallback if VAD is not available
+            return True
+        
+        try:
+            bytes_per_frame = self.audioConfig.chunk_size
+            # Only process if we have enough data for a complete frame
+            if len(audio_chunk) >= bytes_per_frame:
+                # Take the first complete frame
+                frame = audio_chunk[:bytes_per_frame]
+                return self.voiceActivityDetector.is_speech(frame, self.audioConfig.sample_rate)
+            else:
+                return False  # Not enough data for VAD
+                
+        except Exception as e:
+            print(f"VAD error: {e}")
+            return True  # Fallback to accepting all audio on error
 
 
     def _audio_producer_callback(self) -> None:
         try:
             self.audioLock.acquire()
+
+            frame_length = int(self.audioConfig.sample_rate * 30 / 1000)
 
             stream = self.audioInterface.open(
                 format=self.audioConfig.format,
@@ -123,8 +170,11 @@ class AudioWatchDog:
 
 
                 if self._detect_voice_activity(data):
+                    print('+', end='', flush=True)
                     chunk_array: AudioChunk = frombuffer(data, int16).astype(float32) / 32768.0
                     self.audioQueue.put(chunk_array)
+                else:
+                    print('.', end='', flush=True)
 
 
         except Exception as err:
@@ -157,6 +207,7 @@ class AudioWatchDog:
         while self.isRecording.value:
             # When there's enough chunks, send for transcription
             if self.audioQueue.qsize() >= self.audioConfig.chunks_per_buffer:
+                print("\n>> Processing audio chunk for consumers...")
                 try:
                     chunk = concatenate(
                         [self.audioQueue.get_nowait() for _ in range(self.audioConfig.chunks_per_buffer)]
@@ -172,8 +223,13 @@ class AudioWatchDog:
         # If recording is stopped, process any remaining audio chunks
         while not self.audioQueue.empty():
             if self.audioQueue.qsize() >= self.audioConfig.chunks_per_buffer:
+                print("\n>> Processing remaining audio chunk for consumers...")
                 try:
-                    self._transcribe_audio()
+                    chunk = concatenate(
+                        [self.audioQueue.get_nowait() for _ in range(self.audioConfig.chunks_per_buffer)]
+                    )
+                    for consumer in self.audioConsumers:
+                        consumer(chunk)
                 except ValueError as err:
                     print(f"Transcription error: {err}")
                     break
