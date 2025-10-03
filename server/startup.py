@@ -346,7 +346,6 @@ class BotSession:
 
         try:
             # If the model is not available, create it
-            # TODO: Import model filecontent.
             print(f">> {name} not found. Creating from config...")
             create(
                 model=name,

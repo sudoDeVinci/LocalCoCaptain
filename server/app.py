@@ -15,7 +15,7 @@ Map of user session IDS to audio configurations
 app = Flask(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['DEBUG'] = True
-app.config['SECRET_KEY'] = 'some secret key'
+
 CORS(app,resources={r"/*":{"origins":"*"}})
 socketio = SocketIO(app,cors_allowed_origins="*")
 

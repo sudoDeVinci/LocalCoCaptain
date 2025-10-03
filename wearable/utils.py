@@ -21,41 +21,26 @@ from numba import (njit,
                    prange,
 )
 
-from typing import Final, TypedDict, Optional, Any
+from typing import Final, Optional
 
 from torch import (
     inference_mode,
-    device as torch_device,
     cuda
 )
 from pyaudio import PyAudio, paInt16
+
+from ._types import PaDeviceInfo
 
 
 TRANSCRIBER: Whisper | None = None
 """
 Transcription Whisper model for voice to text conversion.
 This model is loaded once and used for all transcriptions.
+This is for local transscribtion, which we would rather not do.
 """
 
 DEVICE: Final[str] = "cuda" if cuda.is_available() else "cpu"
 
-
-class PaDeviceInfo(TypedDict):
-    """
-    Reflection of PyAudio's device info dictionary structure.
-    That in-turn mirrors PortAudio's PaDeviceInfo structure.
-    """
-    index: int
-    structVersion: Any
-    name: str
-    hostApi: Any
-    maxInputChannels: int
-    maxOutputChannels: int
-    defaultLowInputLatency: float
-    defaultLowOutputLatency: float
-    defaultHighInputLatency: float
-    defaultHighOutputLatency: float
-    defaultSampleRate: float
 
 def list_devices() -> list[PaDeviceInfo]:
     """
@@ -78,7 +63,7 @@ def get_default_input_device() -> Optional[PaDeviceInfo]:
     """
     Get the default audio input device using PyAudio.
     Returns:
-        PaDeviceInfo | None: A dictionary containing device information, or None if no default input device is found.
+        device (Optional[PaDeviceInfo]): A dictionary containing device information, or None if no default input device is found.
     """
     try:
         devices = list_devices()
@@ -223,9 +208,10 @@ def chunk_audio(audio: ndarray[float32, 1],
     return audios
 
 
-def transcribe_audio(audio: ndarray[float32, 2]) -> str:
+def locally_transcribe_audio(audio: ndarray[float32, 2]) -> str:
     """
-    Transcribe audio using Whisper english model
+    Transcribe audio using Whisper english model.
+    This is for local transscribtion, which we would rather not do.
     Args:
         audio (list[ndarray[float32, 1]]): List of audio chunks as 1D NumPy arrays.
     Returns:
@@ -240,7 +226,7 @@ def transcribe_audio(audio: ndarray[float32, 2]) -> str:
 
     if TRANSCRIBER is None:
         try:
-            init_transcriber()
+            init_local_transcriber()
         except Exception as e:
             raise RuntimeError("Failed to initialize Whisper transcriber") from e
 
@@ -266,9 +252,10 @@ def transcribe_audio(audio: ndarray[float32, 2]) -> str:
     return " ".join(results)
 
 
-def init_transcriber(model_name: str = "base") -> None:
+def init_local_transcriber(model_name: str = "base") -> None:
     """
     Initialize the Whisper transcriber model.
+    This is for local transscribtion, which we would rather not do.
     Args:
         model_name (str): Name of the Whisper model to load (default: "base").
     """

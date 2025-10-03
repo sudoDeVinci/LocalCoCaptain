@@ -1,4 +1,5 @@
 from pyaudio import paInt16
+from typing import TypedDict, Any
 
 
 class AudioConfig:
@@ -12,6 +13,7 @@ class AudioConfig:
         format (int): Audio format, e.g., pyaudio.paInt16.
         channels (int): Number of audio channels, e.g., 1 for mono, 2 for stereo.
         buffer_duration (int): Duration of the audio buffer in seconds.
+        chunks_per_buffer (int): Number of chunks that fit into the buffer duration.
     """
 
     __slots__ = (
@@ -66,3 +68,34 @@ class AudioConfig:
             'channels': self.channels,
             'buffer_duration': self.buffer_duration
         }
+    
+class PaDeviceInfo(TypedDict):
+    """
+    Reflection of PyAudio's device info dictionary structure.
+    That in-turn mirrors PortAudio's PaDeviceInfo structure.
+
+    Attributes:
+        index (int): The index of the audio device.
+        structVersion (Any): The version of the structure.
+        name (str): The name of the audio device.
+        hostApi (Any): The host API associated with the device.
+        maxInputChannels (int): Maximum number of input channels supported by the device.
+        maxOutputChannels (int): Maximum number of output channels supported by the device.
+        defaultLowInputLatency (float): Default low input latency in seconds.
+        defaultLowOutputLatency (float): Default low output latency in seconds.
+        defaultHighInputLatency (float): Default high input latency in seconds.
+        defaultHighOutputLatency (float): Default high output latency in seconds.
+        defaultSampleRate (float): Default sample rate in Hz.
+    """
+    index: int
+    structVersion: Any
+    name: str
+    hostApi: Any
+    maxInputChannels: int
+    maxOutputChannels: int
+    defaultLowInputLatency: float
+    defaultLowOutputLatency: float
+    defaultHighInputLatency: float
+    defaultHighOutputLatency: float
+    defaultSampleRate: float
+

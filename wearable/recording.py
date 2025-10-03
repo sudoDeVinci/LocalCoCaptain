@@ -101,7 +101,7 @@ class AudioWatchDog:
     def __del__(self):
         try:
             self.stop_recording()
-        except (FileNotFoundError, ConnectionError, OSError):
+        except OSError:
             # Manager may already be cleaned up, just terminate processes directly
             if hasattr(self, 'recordingProcess') and self.recordingProcess and self.recordingProcess.is_alive():
                 self.recordingProcess.terminate()
@@ -113,9 +113,9 @@ class AudioWatchDog:
                 self.audioLock.acquire()
                 self.audioInterface.terminate()
                 self.audioLock.release()
-            except:
+            except OSError:
                 print("⚠️ Error terminating audio interface - some resources may not be released properly")
-                pass
+                
 
     def _detect_voice_activity(self, audio_chunk: bytes) -> bool:
         """

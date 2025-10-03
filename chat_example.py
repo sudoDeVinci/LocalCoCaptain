@@ -102,7 +102,7 @@ if __name__ == "__main__":
 
                 if tool_calls:
                     print(f"\n>> TOOL CALLS: {tool_calls}")
-                    # chunkedMessage["tool_calls"] = tool_calls
+                    
                     res = handle_tool_calls(response['message'])
                     for tool in res:
                         print(f">> TOOL: {tool['name']} - {tool['content']}")
