@@ -1,0 +1,17 @@
+numba==0.61.2
+numpy==2.2.5
+ollama==0.4.8
+openai-whisper==20240930
+PyAudio==0.2.14
+pydantic==2.11.4
+requests==2.32.3
+setuptools==80.7.1
+setuptools-rust==1.11.1
+torch==2.7.0
+webrtcvad==2.0.10
+flask
+flask-socketio
+flask-cors
+types-PyAudio
+types-Flask-SocketIO
+types-Flask-Cors

@@ -7,26 +7,17 @@ from whisper import (
     decode as decode_whisper,
 )
 
-from numpy import (ndarray,
-                   float32,
-                   uint32,
-                   int16,
-                   ceil,
-                   zeros,
-                   frombuffer
+from numpy import ndarray, float32, uint32, int16, ceil, zeros, frombuffer
+
+from numba import (
+    njit,
+    types,
+    prange,
 )
 
-from numba import (njit,
-                   types,
-                   prange,
-)
+from typing import Final, Optional, Literal
 
-from typing import Final, Optional
-
-from torch import (
-    inference_mode,
-    cuda
-)
+from torch import inference_mode, cuda
 from pyaudio import PyAudio, paInt16
 
 from ._types import PaDeviceInfo
@@ -36,71 +27,10 @@ TRANSCRIBER: Whisper | None = None
 """
 Transcription Whisper model for voice to text conversion.
 This model is loaded once and used for all transcriptions.
-This is for local transscribtion, which we would rather not do.
 """
 
 DEVICE: Final[str] = "cuda" if cuda.is_available() else "cpu"
 
-
-def list_devices() -> list[PaDeviceInfo]:
-    """
-    List available audio input devices using PyAudio.
-    Returns:
-        list[PaDeviceInfo]: A list of dictionaries containing device information.
-    """
-    audio = PyAudio()
-    device_count = audio.get_device_count()
-    devices = []
-
-    for i in range(device_count):
-        device_info = audio.get_device_info_by_index(i)
-        devices.append(device_info)
-
-    audio.terminate()
-    return devices
-
-def get_default_input_device() -> Optional[PaDeviceInfo]:
-    """
-    Get the default audio input device using PyAudio.
-    Returns:
-        device (Optional[PaDeviceInfo]): A dictionary containing device information, or None if no default input device is found.
-    """
-    try:
-        devices = list_devices()
-        for device in devices:
-            if device["name"].lower() == "default" and device["maxInputChannels"] > 0:
-                return device
-    except Exception:
-        return None
-    
-    return None
-
-def list_supported_sample_rates(device_index: int) -> list[int]:
-    """
-    List supported sample rates for a given audio input device.
-    Args:
-        device_index (int): The index of the audio input device.
-    Returns:
-        list[int]: A list of supported sample rates in Hz.
-    """
-    audio = PyAudio()
-    supported_rates = []
-    test_rates = [8000, 16000, 22050, 44100, 48000]
-    
-    for rate in test_rates:
-        try:
-            if audio.is_format_supported(
-                rate=rate,
-                input_device=device_index,
-                input_channels=1,
-                input_format=paInt16
-            ):
-                supported_rates.append(rate)
-        except:
-            pass
-    
-    audio.terminate()
-    return supported_rates
 
 def downsample_audio(data: bytes, original_rate: int, target_rate: int) -> bytes:
     """
@@ -119,53 +49,57 @@ def downsample_audio(data: bytes, original_rate: int, target_rate: int) -> bytes
 
     # Convert bytes to numpy array
     audio_data = frombuffer(data, dtype=int16)
-    
+
     # Simple decimation - take every nth sample
     decimation_factor = original_rate // target_rate
     downsampled = audio_data[::decimation_factor]
-    return downsampled.tobytes(order='C')
-
+    return downsampled.tobytes(order="C")
 
 
 @njit(
-    types.Array(types.float32, 1, 'C')(
-        types.Array(types.float32, 1, 'C'),
+    types.Array(types.float32, 1, "C")(
+        types.Array(types.float32, 1, "C"),
         types.uint32,
     ),
     fastmath=True,
     cache=True,
 )
 def pad_or_trim(
-    array:ndarray,
-    length: uint32=480000
-) -> ndarray[float32, 1]:
+    array: ndarray[float32, 1], length: uint32 = uint32(480000)
+) -> ndarray[float32, Literal[1]]:
     """
     NumPy-only pad/trim implementation for Numba use. Performance is about equal.
+    Args:
+        array (ndarray[float32, 1]): Input 1D NumPy array to be padded or trimmed.
+        length (uint32): Desired length of the output array (default: 480000).
+    Returns:
+        ndarray[float32, 1]: Padded or trimmed 1D NumPy array
     """
     # Simple slice for 1D array trimming
     if array.shape[0] > length:
         return array[:length]
-    
+
     # Manual padding for 1D array
     if array.shape[0] < length:
         result = zeros(length, dtype=array.dtype)
-        result[:array.shape[0]] = array
+        result[: array.shape[0]] = array
         return result
-    
+
     # Return as-is if already the right length
     return array
 
 
 @njit(
-    types.Array(types.float32, 2, 'C')(
-        types.Array(types.float32, 1, 'C'),
+    types.Array(types.float32, 2, "C")(
+        types.Array(types.float32, 1, "C"),
         types.uint32,
     ),
     fastmath=True,
     cache=True,
 )
-def chunk_audio(audio: ndarray[float32, 1],
-                CHUNK_LIM: uint32 = 480000,
+def chunk_audio(
+    audio: ndarray[float32, 1],
+    CHUNK_LIM: uint32 = uint32(480000),
 ) -> ndarray[float32, 2]:
     """
     Chunk audio into fixed-size segments of CHUNK_LIM samples.
@@ -191,24 +125,54 @@ def chunk_audio(audio: ndarray[float32, 1],
 
     # if larger than 30 sec, chunk it and pad last piece
     else:
-         # Multiple chunks case
+        # Multiple chunks case
         for i in prange(num_chunks):
             start_idx = i * CHUNK_LIM
             end_idx = min((i + 1) * CHUNK_LIM, audio_length)
-            
+
             # Use NumPy's advanced slicing
             chunk = audio[start_idx:end_idx]
-            
+
             # Only pad if needed
             if len(chunk) < CHUNK_LIM:
                 chunk = pad_or_trim(chunk, CHUNK_LIM)
-            
+
             audios[i] = chunk  # Use index instead of append
 
     return audios
 
 
-def locally_transcribe_audio(audio: ndarray[float32, 2]) -> str:
+def transcriber_init_hook():
+    """
+    Hook for custom transcriber initialization.
+
+    This function is intended to be overridden by calling code.
+    Override this before calling transcribe_audio() to customize transcriber setup.
+
+    Example:
+    ```python
+        from src.common.transcription import (
+        trancriber_init_hook,
+        TRANSCRIBER,
+        DEVICE
+        )
+
+        def custom_init(model_name = "large"):
+            global TRANSCRIBER
+            TRANSCRIBER = transcription.load_model(model_name, DEVICE)
+
+        trancriber_init_hook = custom_init
+    ```
+    Raises:
+        NotImplementedError: If called without being overridden.
+    """
+    raise NotImplementedError(
+        "init_transcriber_to_overwrite() must be overridden before calling transcribe_audio(). "
+        "Assign your custom initialization function to this name."
+    )
+
+
+def transcribe_audio(audio: ndarray[float32, 2]) -> str:
     """
     Transcribe audio using Whisper english model.
     This is for local transscribtion, which we would rather not do.
@@ -226,17 +190,17 @@ def locally_transcribe_audio(audio: ndarray[float32, 2]) -> str:
 
     if TRANSCRIBER is None:
         try:
-            init_local_transcriber()
+            transcriber_init_hook()
         except Exception as e:
             raise RuntimeError("Failed to initialize Whisper transcriber") from e
 
     device = TRANSCRIBER.device
     options = DecodingOptions(
-        temperature=0,              # Temperature to 0 for deterministic results
-        fp16=False,                 # No clue why but fp16 is leagues slower
-        language="en",              # Set language to English - usually faster
-        without_timestamps=True,    # Skip timestamp generation
-        beam_size=1                 # Smaller beam size is faster
+        temperature=0,  # Temperature to 0 for deterministic results
+        fp16=False,  # No clue why but fp16 is leagues slower on most hardware I've tried
+        language="en",  # Set language to English - usually faster
+        without_timestamps=True,  # Skip timestamp generation
+        beam_size=1,  # Smaller beam size is faster
     )
 
     results: list[str] = []
@@ -250,15 +214,3 @@ def locally_transcribe_audio(audio: ndarray[float32, 2]) -> str:
                 results.append(result.text.strip())
 
     return " ".join(results)
-
-
-def init_local_transcriber(model_name: str = "base") -> None:
-    """
-    Initialize the Whisper transcriber model.
-    This is for local transscribtion, which we would rather not do.
-    Args:
-        model_name (str): Name of the Whisper model to load (default: "base").
-    """
-    global TRANSCRIBER
-
-    TRANSCRIBER = load_model(model_name,device=DEVICE, in_memory=True) if TRANSCRIBER is None else TRANSCRIBER

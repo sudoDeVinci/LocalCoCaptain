@@ -5,45 +5,45 @@ from ._types import (
 )
 from typing import Sequence
 
+
 def generate_random_string(length: int) -> str:
     """
     Generates a random string of characters of a specified length.
     Args:
         length (int): The length of the random string to generate.
-    
+
     Returns:
         str: A random string of characters.
     """
     import random
     import string
-    return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+
+    return "".join(random.choices(string.ascii_letters + string.digits, k=length))
+
 
 TOOLS: list[Tool] = [
     {
-        'type':"function",
-        'function': {
-            'name':"generate_random_string",
-            'description':"Generates a random string of characters of a specified length.",
-            'parameters':{
-                'type':"object",
-                'required':["length"],
-                'properties':{
+        "type": "function",
+        "function": {
+            "name": "generate_random_string",
+            "description": "Generates a random string of characters of a specified length.",
+            "parameters": {
+                "type": "object",
+                "required": ["length"],
+                "properties": {
                     "length": {
-                        'type':"int",
-                        'description':"The length of the random string to generate."
+                        "type": "int",
+                        "description": "The length of the random string to generate.",
                     },
-                }
+                },
             },
-        }
+        },
     }
 ]
 
-TOOLS_LOOKUP: dict[str, callable] = {
-    "generate_random_string": generate_random_string
-}
+TOOLS_LOOKUP: dict[str, callable] = {"generate_random_string": generate_random_string}
 
-SYSTEM_PROMPT_TOOLS = (
-    """
+SYSTEM_PROMPT_TOOLS = """
 {- if .Messages }}
 {{- if or .System .Tools }}<|im_start|>system
 {{- if .System }}
@@ -95,10 +95,8 @@ For each function call, return a json object with function name and arguments wi
 {{ end }}<|im_start|>assistant
 {{ end }}{{ .Response }}{{ if .Response }}<|im_end|>{{ end }}
     """
-)
 
-SYSTEM_PROMPT_THIKING_SUPPRESION = (
-"""
+SYSTEM_PROMPT_THIKING_SUPPRESION = """
 {- range $i, $_ := .Messages }}
 {{- $last := eq (len (slice $.Messages $i)) 1 -}}
 {{- if eq .Role "user" }}<|im_start|>user
@@ -141,25 +139,20 @@ SYSTEM_PROMPT_THIKING_SUPPRESION = (
 {{ end }}
 {{- end }}
 """
-)
 
 
 def handle_tool_calls(message: Message) -> list[ToolResponse]:
     out = []
-    
-    calls: Sequence[ToolCall] = message.get('tool_calls', [])
-    
+
+    calls: Sequence[ToolCall] = message.get("tool_calls", [])
+
     for call in calls:
         name = call.function.name
         args = call.function.arguments
         func = TOOLS_LOOKUP.get(name, None)
-        if not func: continue
+        if not func:
+            continue
         result = func(**args)
-        out.append({
-            'role':"tool",
-            'content':str(result),
-            'name':name
-        })
+        out.append({"role": "tool", "content": str(result), "name": name})
 
     return out
-

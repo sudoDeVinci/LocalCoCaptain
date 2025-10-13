@@ -1,5 +1,7 @@
 from pyaudio import paInt16
-from typing import TypedDict, Any
+from typing import Literal, TypedDict, Any, Optional
+
+SampleRate = Literal[8000, 16000, 22050, 32000, 44100, 48000]
 
 
 class AudioConfig:
@@ -9,49 +11,39 @@ class AudioConfig:
     Attributes:
         device_index (int): Index of the audio input device.
         sample_rate (int): Sample rate for the audio recording.
-        chunk_size (int): Size of each audio chunk in frames.
-        format (int): Audio format, e.g., pyaudio.paInt16.
-        channels (int): Number of audio channels, e.g., 1 for mono, 2 for stereo.
-        buffer_duration (int): Duration of the audio buffer in seconds.
-        chunks_per_buffer (int): Number of chunks that fit into the buffer duration.
     """
 
     __slots__ = (
-        'device_index',
-        'sample_rate',
-        'chunk_size',
-        'frame_duration_ms',
-        'format',
-        'channels',
-        'buffer_duration',
-        'chunks_per_buffer'
+        "device_index",
+        "sample_rate",
+        "format",
+        "channels",
+        "frame_size",
+        "bytes_per_frame",
+        "frame_duration_ms",
+        "frames_per_buffer",
     )
-
-    device_index: int
-    sample_rate: int
-    frame_duration_ms: int
-    chunk_size: int
-    format: int
-    channels: int
-    buffer_duration: int
 
     def __init__(
         self,
-        device_index: int = 1,
+        device_index: Optional[int] = None,
         sample_rate: int = 48000,
         format: int = paInt16,
         channels: int = 1,
         frame_duration_ms: int = 30,
-        buffer_duration: int = 2
+        buffer_duration_seconds: int = 3,
     ) -> None:
         self.frame_duration_ms = frame_duration_ms
         self.device_index = device_index
         self.sample_rate = sample_rate
-        self.chunk_size = 2 * (int(sample_rate * frame_duration_ms / 1000))
         self.format = format
         self.channels = channels
-        self.buffer_duration = buffer_duration
-        self.chunks_per_buffer = int(sample_rate * buffer_duration / self.chunk_size)
+
+        self.frame_size = int(self.sample_rate * self.frame_duration_ms / 1000)
+        self.bytes_per_frame = self.frame_size * 2  # 16-bit audio = 2 bytes per sample
+        self.frames_per_buffer = int(
+            (self.sample_rate * buffer_duration_seconds) / self.frame_size
+        )
 
     def dict(self) -> dict:
         """
@@ -61,14 +53,19 @@ class AudioConfig:
             dict: Dictionary representation of the audio configuration.
         """
         return {
-            'device_index': self.device_index,
-            'sample_rate': self.sample_rate,
-            'chunk_size': self.chunk_size,
-            'format': self.format,
-            'channels': self.channels,
-            'buffer_duration': self.buffer_duration
+            "device_index": self.device_index,
+            "sample_rate": self.sample_rate,
+            "format": self.format,
+            "channels": self.channels,
+            "frame_duration_ms": self.frame_duration_ms,
+            "frame_size": self.frame_size,
+            "bytes_per_frame": self.bytes_per_frame,
         }
-    
+
+    def __str__(self):
+        return f"AudioConfig(device_index={self.device_index}, sample_rate={self.sample_rate}, format={self.format}, channels={self.channels}, frame_duration_ms={self.frame_duration_ms}, frame_size={self.frame_size}, bytes_per_frame={self.bytes_per_frame})"
+
+
 class PaDeviceInfo(TypedDict):
     """
     Reflection of PyAudio's device info dictionary structure.
@@ -87,6 +84,7 @@ class PaDeviceInfo(TypedDict):
         defaultHighOutputLatency (float): Default high output latency in seconds.
         defaultSampleRate (float): Default sample rate in Hz.
     """
+
     index: int
     structVersion: Any
     name: str
@@ -98,4 +96,3 @@ class PaDeviceInfo(TypedDict):
     defaultHighInputLatency: float
     defaultHighOutputLatency: float
     defaultSampleRate: float
-

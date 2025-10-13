@@ -1,14 +1,6 @@
-from ._types import (
-    Modelfile,
-    Function,
-    ToolCall,
-    ToolResponse
-)
+from ._types import Modelfile, Function, ToolCall, ToolResponse
 
-from .startup import (
-    LOGGER,
-    BotSession
-)
+from .startup import LOGGER, BotSession
 
 from .utils import (
     TOOLS,
@@ -16,7 +8,7 @@ from .utils import (
     SYSTEM_PROMPT_TOOLS,
     SYSTEM_PROMPT_THIKING_SUPPRESION,
     generate_random_string,
-    handle_tool_calls
+    handle_tool_calls,
 )
 
 __all__ = (
@@ -30,5 +22,5 @@ __all__ = (
     "TOOLS_LOOKUP",
     "SYSTEM_PROMPT_TOOLS",
     "generate_random_string",
-    "handle_tool_calls"
+    "handle_tool_calls",
 )

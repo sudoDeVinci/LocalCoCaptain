@@ -1,5 +1,10 @@
 # LocalCoCaptain
 
+[![Type Checking](https://github.com/sudoDeVinci/HYGP-lasers/actions/workflows/mypy.yml/badge.svg?branch=main)](https://github.com/sudoDeVinci/LocalCoCaptain/actions/workflows/typecheck.yml)
+[![Linting](https://github.com/sudoDeVinci/HYGP-lasers/actions/workflows/linting.yml/badge.svg?branch=main)](https://github.com/sudoDeVinci/LocalCoCaptain/actions/workflows/linting.yml)
+[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
 Locally run AI server extension, tailored for assistance inside wearables.
 For simplicity, we just use ollama to communicate and organize models.
 

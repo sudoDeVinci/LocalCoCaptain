@@ -1,21 +1,9 @@
-from typing import (
-    TypedDict,
-    Any,
-    Mapping,
-    Optional,
-    Sequence,
-    Literal,
-    Union
-)
+from typing import TypedDict, Any, Mapping, Optional, Sequence, Literal, Union
 
-from pydantic import (
-    ConfigDict,
-    Field
-)
+from pydantic import ConfigDict, Field
 
-from ollama._types import (
-    SubscriptableBaseModel
-)
+from ollama._types import SubscriptableBaseModel
+
 
 class Modelfile(TypedDict):
     """
@@ -32,6 +20,7 @@ class Modelfile(TypedDict):
         context_length (int): The context length for the model.
         system (str): The system prompt for the model.
     """
+
     model: str
     name: str
     description: str
@@ -53,8 +42,8 @@ class Property(SubscriptableBaseModel):
 
 class Parameters(SubscriptableBaseModel):
     model_config = ConfigDict(populate_by_name=True)
-    type: Optional[Literal['object']] = 'object'
-    defs: Optional[Any] = Field(None, alias='$defs')
+    type: Optional[Literal["object"]] = "object"
+    defs: Optional[Any] = Field(None, alias="$defs")
     items: Optional[Any] = None
     required: Optional[Sequence[str]] = None
     properties: Optional[Mapping[str, Property]] = None
@@ -64,6 +53,7 @@ class Function(SubscriptableBaseModel):
     """
     Function definition
     """
+
     name: Optional[str] = None
     description: Optional[str] = None
     parameters: Optional[Parameters] = None
@@ -80,7 +70,9 @@ class ToolCall(SubscriptableBaseModel):
     This uses the "arguments" field of the
     Function, NOT "parameters".
     """
+
     function: _Function
+
 
 class ToolResponse(TypedDict):
     """
@@ -91,6 +83,7 @@ class ToolResponse(TypedDict):
         content (str | None): The content of the message, if any.
         name (str | None): The name of the tool being called, if applicable.
     """
+
     role: str
     content: str | None
     name: str | None
