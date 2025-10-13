@@ -1,4 +1,4 @@
-from ._types import Modelfile, Function, ToolCall, ToolResponse
+from ._types import Modelfile, ToolCall, ToolResponse
 
 from .startup import LOGGER, BotSession
 
@@ -13,7 +13,6 @@ from .utils import (
 
 __all__ = (
     "Modelfile",
-    "Function",
     "ToolCall",
     "ToolResponse",
     "LOGGER",

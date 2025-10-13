@@ -14,7 +14,7 @@ from .utils import (
     Tool,
 )
 
-from typing import Iterator, Sequence
+from typing import Iterator, Optional, Sequence, Literal, cast
 from logging import getLogger, Logger
 from os.path import exists, isfile
 from pathlib import Path
@@ -46,7 +46,7 @@ class BotSession:
         self,
         params: str = "2b",
         logfile: str = "chatlog.json",
-        tools: list[Tool] = None,
+        tools: Optional[list[Tool]] = None,
         defaultmsgs: Sequence[Message] = [],
     ) -> None:
 
@@ -140,7 +140,7 @@ class BotSession:
         """
         return self._NAME
 
-    def chat(self, stream: bool = True) -> Iterator[ChatResponse]:
+    def chat(self, stream: Literal[True] = True) -> Iterator[ChatResponse]:
         """
         Starts a chat session with the model using the current messages.
         This is a thread-safe operation.
@@ -150,13 +150,20 @@ class BotSession:
 
         Returns:
             Iterator[ChatResponse]: An iterator that yields ChatResponse objects.
+        Raises:
+            ValueError: If the model name is not set.
         """
+        if self._NAME is None:
+            raise ValueError(
+                "Model name is not set. Please initialize the model first."
+            )
         with self.MSGLOCK:
             return chat(
                 model=self._NAME,
-                messages=self._MESSAGES,
+                messages=cast(Sequence[Message], [self._MESSAGES]),
                 stream=stream,
-                tools=self.TOOLS,
+                tools=cast(Sequence[Tool], self.TOOLS),
+                format="json",
             )
 
     def add_message(self, message: Message) -> None:
@@ -320,17 +327,27 @@ class BotSession:
             )
 
         # Check if the main model is available
-        for model in models["models"]:
-            if modelcopy["name"] in model["model"]:
+        for m in models["models"]:
+            if modelcopy["name"] in m["model"]:
                 self._NAME = modelcopy["name"]
                 return (
                     True,
                     None,
                 )
 
-        system = modelcopy.pop("system", None)
-        name = modelcopy.pop("name", None)
-        model = modelcopy.pop("model", None)
+        system: str = modelcopy.get("system", "None")
+        name: str = modelcopy.get("name", "None")
+        model: str = modelcopy.get("model", "None")
+
+        empty_fields = [
+            field for field in ("name", "model", "system") if locals()[field] == "None"
+        ]
+
+        if empty_fields:
+            return (
+                False,
+                f"Model configuration missing fields: {', '.join(empty_fields)}",
+            )
 
         try:
             # If the model is not available, create it
@@ -346,8 +363,8 @@ class BotSession:
 
         # Check if the model was created successfully
         models = list_models()
-        for model in models["models"]:
-            if name in model["model"]:
+        for m in models["models"]:
+            if name in m["model"]:
                 self._NAME = name
                 return (
                     True,

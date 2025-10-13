@@ -3,7 +3,8 @@ from ._types import (
     ToolCall,
     ToolResponse,
 )
-from typing import Sequence
+from typing import Sequence, Callable, Optional, Any
+from pydantic import ConfigDict
 
 
 def generate_random_string(length: int) -> str:
@@ -20,28 +21,29 @@ def generate_random_string(length: int) -> str:
 
     return "".join(random.choices(string.ascii_letters + string.digits, k=length))
 
-
 TOOLS: list[Tool] = [
-    {
-        "type": "function",
-        "function": {
-            "name": "generate_random_string",
-            "description": "Generates a random string of characters of a specified length.",
-            "parameters": {
-                "type": "object",
-                "required": ["length"],
-                "properties": {
-                    "length": {
-                        "type": "int",
-                        "description": "The length of the random string to generate.",
-                    },
+    Tool(
+        type="function",
+        function = Tool.Function(
+            name="generate_random_string",
+            description="Generates a random string of characters of a specified length.",
+            parameters=Tool.Function.Parameters(
+                type="object",
+                required=["length"],
+                properties={
+                    "length": Tool.Function.Parameters.Property(
+                        type="int",
+                        description="The length of the random string to generate.",
+                    ),
                 },
-            },
-        },
-    }
+            )   
+        )
+    )
 ]
 
-TOOLS_LOOKUP: dict[str, callable] = {"generate_random_string": generate_random_string}
+
+
+TOOLS_LOOKUP: dict[str, Callable[..., Any]] = {"generate_random_string": generate_random_string}
 
 SYSTEM_PROMPT_TOOLS = """
 {- if .Messages }}
@@ -148,11 +150,13 @@ def handle_tool_calls(message: Message) -> list[ToolResponse]:
 
     for call in calls:
         name = call.function.name
+        if not name:
+            continue
         args = call.function.arguments
-        func = TOOLS_LOOKUP.get(name, None)
+        func: Optional[Callable[..., Any]] = TOOLS_LOOKUP.get(name, None)
         if not func:
             continue
         result = func(**args)
-        out.append({"role": "tool", "content": str(result), "name": name})
+        out.append(ToolResponse(role="tool", content=str(result), name=name))
 
     return out

@@ -32,33 +32,6 @@ class Modelfile(TypedDict):
     system: str
 
 
-class Property(SubscriptableBaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-    type: Optional[Union[str, Sequence[str]]] = None
-    items: Optional[Any] = None
-    description: Optional[str] = None
-    enum: Optional[Sequence[Any]] = None
-
-
-class Parameters(SubscriptableBaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-    type: Optional[Literal["object"]] = "object"
-    defs: Optional[Any] = Field(None, alias="$defs")
-    items: Optional[Any] = None
-    required: Optional[Sequence[str]] = None
-    properties: Optional[Mapping[str, Property]] = None
-
-
-class Function(SubscriptableBaseModel):
-    """
-    Function definition
-    """
-
-    name: Optional[str] = None
-    description: Optional[str] = None
-    parameters: Optional[Parameters] = None
-
-
 class _Function(SubscriptableBaseModel):
     name: Optional[str] = None
     arguments: Mapping[str, Any]

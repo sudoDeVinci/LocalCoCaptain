@@ -12,5 +12,5 @@ __all__ = (
     "init_transcriber",
     "list_devices",
     "get_default_input_device",
-    "list_supported_sample_rates"
+    "list_supported_sample_rates",
 )
